@@ -1,34 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
-# Usage examples:
-#   NP=2 ./scripts/run_mpi.sh
-#   ./scripts/run_mpi.sh -H node1,node2 -N 2
+# cd to repo root (robust to symlinks)
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-NP="${NP:-2}"
-HOSTS_FLAG=""
-EXTRA=()
+# --------- MPI on a single node (no TCP chatter) ----------
+export OMPI_MCA_btl=self,vader
+unset OMPI_MCA_btl_tcp_if_include 2>/dev/null || true
+unset OMPI_MCA_oob_tcp_if_include 2>/dev/null || true
 
-if [[ "${1:-}" == "-H" ]]; then
-  HOSTS_FLAG="--host $2"
-  shift 2
-fi
-if [[ "${1:-}" == "-N" ]]; then
-  NP="$2"
-  shift 2
-fi
-if [[ $# -gt 0 ]]; then
-  EXTRA=("$@")
+# --------- Optional: pick a GPU for this run ---------------
+# Usage: GPU=0 ./scripts/run_local.sh
+if [[ -n "${GPU:-}" ]]; then
+  export CUDA_VISIBLE_DEVICES="${GPU}"
 fi
 
-# CUDA-aware UCX path (Open MPI 5 + UCX)
-export OMPI_MCA_pml=ucx
-# UCX hints for GPU staging; adjust to your fabric if needed
-export UCX_TLS=${UCX_TLS:-"sm,cuda_copy,cuda_ipc,rc"}
-export UCX_GPU_COPY_MODE=${UCX_GPU_COPY_MODE:-"cuda"}
-# Some sites need to disable old BTLs explicitly
-export OMPI_MCA_btl=${OMPI_MCA_btl:-"self,vader"}
+# --------- Config path (override with CONFIG=/path.json) ---
+CONFIG="${CONFIG:-./configs/nano2.json}"
 
-mpirun -np "${NP}" ${HOSTS_FLAG} ./build/nano2 "${EXTRA[@]}"
+# --------- Build if missing --------------------------------
+if [[ ! -x ./build/nano2 ]]; then
+  echo "[run_local] nano2 missing; building..."
+  ./scripts/build.sh
+fi
+
+# --------- Logging -----------------------------------------
+mkdir -p logs
+ts="$(date +%Y%m%d-%H%M%S)"
+log="logs/local-${ts}.log"
+
+echo "[run_local] exec ./build/nano2 --config ${CONFIG}"
+# Use 'exec' so signals (Ctrl-C) propagate cleanly; tee for a local log.
+exec ./build/nano2 --config "${CONFIG}" | tee "${log}"
 
