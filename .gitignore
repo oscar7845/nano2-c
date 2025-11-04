@@ -1,0 +1,20 @@
+# Build / tooling
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake-install.cmake
+/compile_commands.json
+/*.cmake
+/.cache/
+/.vscode/
+/.idea/
+
+# Runtime artifacts
+/logs/
+/checkpoints/
+/data/cache/
+/data/tmp/
+
+# OS cruft
+.DS_Store
+Thumbs.db
