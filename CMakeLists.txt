@@ -45,7 +45,7 @@ endif()
 
 # ---- Packer tool (no headers) ----
 add_executable(nano2_pack
-  tools/pack_text.c
+  tools/tokenizer.c
 )
 set_target_properties(nano2_pack PROPERTIES C_STANDARD 11)
 
