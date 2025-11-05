@@ -1,9 +1,9 @@
-# nano2 (C + CUDA + MPI)
+# nano2 (a nano version of nano-gpt))
 
-A tiny, from-scratch Transformer trained on TinyStories with byte-level tokens.
-Single GPU first; same code runs multi-process with CUDA-aware MPI.
+A small Transformer from scratch trained on TinyStories (https://huggingface.co/datasets/roneneldan/TinyStories) with byte-level tokens.
+Single GPU first; same code runs multi box with CUDA aware MPI.
 
-## Quick start
+## Helpful commands 
 
 ```bash
 # Configure + build (Release)
