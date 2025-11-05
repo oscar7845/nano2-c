@@ -1,5 +1,6 @@
 {
-  "dataset_path": "data/tinystories.txt",
+  "train_path": "data/tinystories-train.bin",
+  "val_path":   "data/tinystories-val.bin",
   "seq_len": 256,
   "batch_size": 16,
   "vocab_size": 256,
