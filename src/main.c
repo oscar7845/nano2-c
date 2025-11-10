@@ -10,7 +10,7 @@
 #include <mpi.h>
 #include <cuda_runtime_api.h>
 
-//config (config.c)
+//(config.c)
 struct Config{
     char train_path[512];
     char val_path[512];
@@ -28,7 +28,7 @@ struct Config{
 int config_from_file(const char* path, struct Config* out);
 void config_log(const struct Config* c);
 
-//dataset (data.c)
+//(data.c)
 struct DataSet {
     uint8_t* data;
     size_t n;
@@ -41,7 +41,7 @@ void dataset_reset(struct DataSet* ds, size_t pos);
 void dataset_next_batch(struct DataSet* ds, int batch_size, int seq_len, uint8_t* x, uint8_t* y);
 void dataset_log(const struct DataSet* ds, const char* tag);
 
-//CUDA test (dummy_kernels.cu)
+//(dummy_kernels.cu)
 void nano2_cuda_selftest(void);
 
 //arg parsing for --config
@@ -61,11 +61,9 @@ static void get_config_path(int argc, char** argv, char* out, size_t cap){
 
 int main(int argc, char** argv){
     MPI_Init(&argc, &argv);
-
     int rank=0, world=1;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world);
-
     MPI_Comm local;
     MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &local);
     int local_rank=0, local_size=1;
@@ -77,7 +75,7 @@ int main(int argc, char** argv){
     int dev = (dev_count > 0) ? (local_rank % dev_count) : 0;
     cudaSetDevice(dev);
 
-    if (rank == 0) {
+    if (rank==0){
         printf("nano2: world=%d local_rank=%d/%d device=%d\n", world, local_rank, local_size, dev);
     }
 
@@ -86,27 +84,27 @@ int main(int argc, char** argv){
 
     struct Config cfg;
     config_from_file(config_path, &cfg);
-    if (rank == 0) {
+    if (rank==0){
         printf("config: %s\n", config_path);
         config_log(&cfg);
     }
 
     struct DataSet train_ds, val_ds;
     dataset_load(cfg.train_path, &train_ds);
-    dataset_load(cfg.val_path,   &val_ds);
-    if (rank == 0) {
+    dataset_load(cfg.val_path, &val_ds);
+    if (rank==0){
         dataset_log(&train_ds, "train");
-        dataset_log(&val_ds,   "val");
+        dataset_log(&val_ds, "val");
     }
 
-    const int B = cfg.batch_size;
-    const int T = cfg.seq_len;
+    const int B=cfg.batch_size;
+    const int T=cfg.seq_len;
     uint8_t* x = (uint8_t*)malloc((size_t)B * (size_t)T);
     uint8_t* y = (uint8_t*)malloc((size_t)B * (size_t)T);
     dataset_next_batch(&train_ds, B, T, x, y);
 
-    if (rank == 0) {
-        int preview = (T < 16) ? T : 16;
+    if (rank==0){
+        int preview = (T<16) ? T : 16;
         printf("batch preview x[0,0:%d): ", preview);
         for (int t = 0; t < preview; ++t) printf("%u ", (unsigned)x[t]);
         printf("\n");
@@ -118,7 +116,7 @@ int main(int argc, char** argv){
     free(x); free(y);
 
     nano2_cuda_selftest();
-    if (rank == 0) printf("cuda self-test: OK\n");
+    if (rank==0) printf("cuda test: OK\n");
 
     dataset_free(&train_ds);
     dataset_free(&val_ds);

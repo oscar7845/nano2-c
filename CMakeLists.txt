@@ -13,6 +13,7 @@ find_package(CUDAToolkit REQUIRED)
 add_executable(nano2
   src/main.c
   src/config.c
+  src/data.c
   src/cuda/dummy_kernels.cu
 )
 
