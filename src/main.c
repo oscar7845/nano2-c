@@ -118,6 +118,18 @@ int main(int argc, char** argv){
     nano2_cuda_selftest();
     if (rank==0) printf("cuda test: OK\n");
 
+    //test model
+    // TODO: 
+    if(rank==0){
+      printf("\nmodel test:\n");
+      extern struct Model* model_new(int dim);
+      extern void model_forward(struct Model *m);
+      extern void model_free(struct Model *m);
+      struct Model *m=model_new(8);
+      model_forward(m);
+      model_free(m);
+    }
+
     dataset_free(&train_ds);
     dataset_free(&val_ds);
 

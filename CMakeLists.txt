@@ -15,6 +15,8 @@ add_executable(nano2
   src/config.c
   src/data.c
   src/cuda/dummy_kernels.cu
+  src/model.c
+  src/tensor.c
 )
 
 target_link_libraries(nano2 PRIVATE
