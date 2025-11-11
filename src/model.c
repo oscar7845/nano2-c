@@ -32,6 +32,17 @@ struct Model{
     int hidden;
 };
 
+extern void train_forward_gpu(
+    const float *h_x,
+    const float *h_W1,
+    const float *h_b1,
+    const float *h_W2,
+    const float *h_b2,
+    float *h_out,
+    int batch,
+    int d_model
+);
+
 struct Model* model_new(int d_model){
     //hidden dimension maybe = 4 * d_model (standard MLP)
     int hidden = d_model * 4;
@@ -84,8 +95,27 @@ void model_forward(struct Model *m, struct Tensor *x_in,
         }
     }
 
+   //GPU try path (temporary)
+   //(just batch=1 currently)
+   //leave commented until ready to test
+   /*
+   train_forward_gpu(x_in->data,
+                  m->W1->data,
+                  m->b1->data,
+                  m->W2->data,
+                  m->b2->data,
+                  x_out->data,
+                  x_in->rows,
+                  m->d_model);
+
+    // early return to skip CPU
+    return;
+    */
+
     //printf("DEBUG forward done\n");
 }
+
+
 
 void model_free(struct Model *m){
     tensor_free(m->W1);
