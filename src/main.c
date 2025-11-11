@@ -106,8 +106,10 @@ int main(int argc, char** argv){
     if (rank==0){
         int preview = (T<16) ? T : 16;
         printf("batch preview x[0,0:%d): ", preview);
-        for (int t = 0; t < preview; ++t) printf("%u ", (unsigned)x[t]);
-        printf("\n");
+        for (int t = 0; t < preview; ++t) 
+		printf("%u ", (unsigned)x[t]);
+                //printf("test %d", t);
+	printf("\n");
         printf("batch preview y[0,0:%d): ", preview);
         for (int t = 0; t < preview; ++t) printf("%u ", (unsigned)y[t]);
         printf("\n");
@@ -118,34 +120,36 @@ int main(int argc, char** argv){
     nano2_cuda_selftest();
     if (rank==0) printf("cuda test: OK\n");
 
-    //test model (now with matmul + bias)
+    //test model
+    //2-layer MLP w/ ReLU
     if(rank==0){
-      printf("\nmodel test:\n");
-
+     printf("\nmodel test:\n");
+     //printf("check later")
      extern struct Model* model_new(int d_model);
-     extern void model_forward(struct Model *m, struct Tensor *x_in, struct Tensor *x_out);
+     extern void model_forward(struct Model *m, struct Tensor *x_in, struct Tensor *x_tmp1,struct Tensor *x_out);
      extern void model_free(struct Model *m);
      extern struct Tensor* tensor_create(int r, int c);
      extern void tensor_fill(struct Tensor *t, float v);
      extern void tensor_show(struct Tensor *t);
+     extern void tensor_free(struct Tensor *t);
 
-     int d = cfg.d_model; // more realistic now
-     struct Model *m = model_new(d);
+     int d= cfg.d_model;//match config
+     struct Model *m =model_new(d);
 
-     // make fake input batch = (1 x d)
-     struct Tensor *x_in = tensor_create(1, d);
-     tensor_fill(x_in, 1.0f); // test input all 1s
+     //batch= 1for now
+     struct Tensor *x_in=tensor_create(1, d);
+     struct Tensor *x_tmp1=tensor_create(1, d * 4); // hidden size
+     struct Tensor *x_out =tensor_create(1, d);
 
-     struct Tensor *x_out = tensor_create(1, d);
-
-     model_forward(m, x_in, x_out);
-
-     tensor_show(x_out);  // preview result
-
+     tensor_fill(x_in,1.0f);//test input = ones
+     model_forward(m, x_in,x_tmp1, x_out);
+     tensor_show(x_out);//preview
      tensor_free(x_in);
+     tensor_free(x_tmp1);
      tensor_free(x_out);
      model_free(m);
     }
+
     dataset_free(&train_ds);
     dataset_free(&val_ds);
 
