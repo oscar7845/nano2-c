@@ -1,60 +1,55 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-//TODO: maybe add more tensors layer wise later
-// test with rand vals path
-// remove w1 hardcoded shape -> pass config.d_model eventually
-
-struct Tensor{ 
-	int n; float *data; 
-};
-struct Tensor* tensor_create(int n);
+//TODO: move to header later
+struct Tensor { int rows; int cols; float *data; };
+struct Tensor* tensor_create(int r, int c);
 void tensor_fill(struct Tensor *t, float v);
 void tensor_fill_random(struct Tensor *t);
 void tensor_show(struct Tensor *t);
+void tensor_matmul(struct Tensor *A, struct Tensor *B, struct Tensor *C);
 void tensor_free(struct Tensor *t);
 
 struct Model{
-    struct Tensor *w1;
-    struct Tensor *w2;
+    // pretend one linear layer: y = xW + b
+    struct Tensor *W;   // (d_model x d_model) or (in_dim x out_dim)
+    struct Tensor *b;   // (1 x d_model)
 };
 
-struct Model* model_new(int dim) 
-{
+struct Model* model_new(int d_model){
     struct Model *m = malloc(sizeof(struct Model));
-    m->w1 = tensor_create(dim);
-    m->w2 = tensor_create(dim);
 
-    //TEST: random w1 instead of fixed
-    //tensor_fill(m->w1, 1.0f);
-    tensor_fill_random(m->w1);
+    m->W = tensor_create(d_model, d_model);
+    m->b = tensor_create(1, d_model);
 
-    //still keep w2 fixed to see difference visually
-    tensor_fill(m->w2, 2.5f);
+    // random W, small b
+    tensor_fill_random(m->W);
+    tensor_fill(m->b, 0.01f);
 
-    printf("model_new: dim=%d\n", dim);
+    printf("model_new d_model=%d\n", d_model);
     return m;
 }
 
-void model_forward(struct Model *m){
-    printf("model_forward:\n");
-    tensor_show(m->w1);
-    tensor_show(m->w2);
+// x_in: (batch x d_model)
+// x_out: (batch x d_model)
+void model_forward(struct Model *m, struct Tensor *x_in, struct Tensor *x_out){
+    // x_out = x_in * W
+    tensor_matmul(x_in, m->W, x_out);
 
-    // simple next step: pretend forward = elementwise add
-    // NOTE: no dimension check (TODO)
-    for(int i = 0; i < m->w1->n; i++){
-        m->w1->data[i] = m->w1->data[i] + m->w2->data[i];
-        //if(i < 5) printf("DEBUG add[%d]: %f\n", i, m->w1->data[i]); // leave commented
+    // add bias
+    for(int b = 0; b < x_out->rows; b++){
+        for(int j = 0; j < x_out->cols; j++){
+            x_out->data[b*x_out->cols + j] += m->b->data[j];
+        }
     }
 
-    printf("after add:\n");
-    tensor_show(m->w1);
+    printf("model_forward done\n");
+    //tensor_show(x_out); // enable if needed
 }
 
 void model_free(struct Model *m){
-    tensor_free(m->w1);
-    tensor_free(m->w2);
+    tensor_free(m->W);
+    tensor_free(m->b);
     free(m);
     printf("model_free\n");
 }

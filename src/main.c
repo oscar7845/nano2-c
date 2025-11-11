@@ -118,18 +118,34 @@ int main(int argc, char** argv){
     nano2_cuda_selftest();
     if (rank==0) printf("cuda test: OK\n");
 
-    //test model
-    // TODO: 
+    //test model (now with matmul + bias)
     if(rank==0){
       printf("\nmodel test:\n");
-      extern struct Model* model_new(int dim);
-      extern void model_forward(struct Model *m);
-      extern void model_free(struct Model *m);
-      struct Model *m=model_new(8);
-      model_forward(m);
-      model_free(m);
-    }
 
+     extern struct Model* model_new(int d_model);
+     extern void model_forward(struct Model *m, struct Tensor *x_in, struct Tensor *x_out);
+     extern void model_free(struct Model *m);
+     extern struct Tensor* tensor_create(int r, int c);
+     extern void tensor_fill(struct Tensor *t, float v);
+     extern void tensor_show(struct Tensor *t);
+
+     int d = cfg.d_model; // more realistic now
+     struct Model *m = model_new(d);
+
+     // make fake input batch = (1 x d)
+     struct Tensor *x_in = tensor_create(1, d);
+     tensor_fill(x_in, 1.0f); // test input all 1s
+
+     struct Tensor *x_out = tensor_create(1, d);
+
+     model_forward(m, x_in, x_out);
+
+     tensor_show(x_out);  // preview result
+
+     tensor_free(x_in);
+     tensor_free(x_out);
+     model_free(m);
+    }
     dataset_free(&train_ds);
     dataset_free(&val_ds);
 
