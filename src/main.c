@@ -1,6 +1,4 @@
-//MPI init and pick GPU
-//load config + data, and make one batch
-//CUDA test
+//load cfg, data,model forward test
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,129 +23,178 @@ struct Config{
     int seed;
     int top_k;
 };
-int config_from_file(const char* path, struct Config* out);
-void config_log(const struct Config* c);
+
+int  config_from_file(const char *path, struct Config *out);
+void config_log(const struct Config *c);
 
 //(data.c)
-struct DataSet {
-    uint8_t* data;
+struct DataSet{
+    uint8_t *data;
     size_t n;
     size_t cursor;
     char path[512];
 };
-int dataset_load(const char* path, struct DataSet* ds);
-void dataset_free(struct DataSet* ds);
-void dataset_reset(struct DataSet* ds, size_t pos);
-void dataset_next_batch(struct DataSet* ds, int batch_size, int seq_len, uint8_t* x, uint8_t* y);
-void dataset_log(const struct DataSet* ds, const char* tag);
 
-//(dummy_kernels.cu)
+int dataset_load(const char *path, struct DataSet *ds);
+void dataset_free(struct DataSet *ds);
+void dataset_reset(struct DataSet *ds, size_t pos);
+void dataset_next_batch(struct DataSet *ds, int B, int T, uint8_t *x, uint8_t *y);
+void dataset_log(const struct DataSet *ds,const char *tag);
+
+//tensor + model
+struct Tensor{
+    int rows;
+    int cols;
+    float *data;
+};
+
+struct Tensor* tensor_create(int r,int c);
+void tensor_fill(struct Tensor *t,float v);
+void tensor_fill_random(struct Tensor *t);
+void tensor_show(struct Tensor *t);
+void tensor_matmul(struct Tensor *A, struct Tensor *B, struct Tensor *C);
+void tensor_free(struct Tensor *t);
+
+struct Model{
+    struct Tensor *W1;
+    struct Tensor *b1;
+    struct Tensor *W2;
+    struct Tensor *b2;
+    int d_model;
+    int hidden;
+};
+
+struct Model* model_new(int d_model);
+void model_forward(struct Model *m,
+                   struct Tensor *x_in,
+                   struct Tensor *x_tmp1,
+                   struct Tensor *x_out);
+void model_free(struct Model *m);
+
+//dummy kernel test
 void nano2_cuda_selftest(void);
 
-//arg parsing for --config
-static void get_config_path(int argc, char** argv, char* out, size_t cap){
-    const char* def = "./configs/nano2.json";
-    size_t n = strlen(def); if (n >= cap) n = cap - 1;
-    memcpy(out, def, n); out[n] = '\0';
-    for (int i = 1; i < argc; ++i){
-        const char* a = argv[i];
-        if (strncmp(a, "--config=", 9) == 0){
-            strncpy(out, a + 9, cap - 1); out[cap-1] = '\0';
-        } else if (strcmp(a, "--config") == 0 && i + 1 < argc){
-            strncpy(out, argv[i+1], cap - 1); out[cap-1] = '\0'; ++i;
+
+// get config flag
+static void get_config_path(int argc,char **argv,char *out,size_t cap){
+    const char *def="./configs/nano2.json";
+    strncpy(out,def,cap); out[cap-1]='\0';
+    for(int i=1;i<argc;i++){
+        const char *a=argv[i];
+        if(strncmp(a,"--config=",9)==0){
+            strncpy(out,a+9,cap); out[cap-1]='\0';
+        } else if(strcmp(a,"--config")==0 && i+1<argc){
+            strncpy(out,argv[i+1],cap); out[cap-1]='\0';
+            i++;
         }
     }
 }
 
-int main(int argc, char** argv){
-    MPI_Init(&argc, &argv);
-    int rank=0, world=1;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world);
+
+int main(int argc,char **argv){
+    MPI_Init(&argc,&argv);
+
+    int rank=0,world=1;
+    MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+    MPI_Comm_size(MPI_COMM_WORLD,&world);
+
     MPI_Comm local;
     MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &local);
-    int local_rank=0, local_size=1;
-    MPI_Comm_rank(local, &local_rank);
-    MPI_Comm_size(local, &local_size);
+
+    int local_rank=0,local_size=1;
+    MPI_Comm_rank(local,&local_rank);
+    MPI_Comm_size(local,&local_size);
     MPI_Comm_free(&local);
 
-    int dev_count=0; cudaGetDeviceCount(&dev_count);
-    int dev = (dev_count > 0) ? (local_rank % dev_count) : 0;
+    int dev_count=0;
+    cudaGetDeviceCount(&dev_count);
+    int dev=(dev_count>0)? (local_rank % dev_count) : 0;
     cudaSetDevice(dev);
 
-    if (rank==0){
-        printf("nano2: world=%d local_rank=%d/%d device=%d\n", world, local_rank, local_size, dev);
+    if(rank==0){
+        printf("nano2 main: world=%d local_rank=%d/%d dev=%d\n",
+            world,local_rank,local_size,dev);
     }
 
-    char config_path[512];
-    get_config_path(argc, argv, config_path, sizeof(config_path));
+    //load config
+    char cfg_path[512];
+    get_config_path(argc,argv,cfg_path,sizeof(cfg_path));
 
     struct Config cfg;
-    config_from_file(config_path, &cfg);
-    if (rank==0){
-        printf("config: %s\n", config_path);
+    config_from_file(cfg_path,&cfg);
+    if(rank==0){
+        printf("config: %s\n", cfg_path);
         config_log(&cfg);
     }
 
+    //load datasets
     struct DataSet train_ds, val_ds;
-    dataset_load(cfg.train_path, &train_ds);
-    dataset_load(cfg.val_path, &val_ds);
-    if (rank==0){
-        dataset_log(&train_ds, "train");
-        dataset_log(&val_ds, "val");
+    dataset_load(cfg.train_path,&train_ds);
+    dataset_load(cfg.val_path,&val_ds);
+
+    if(rank==0){
+        dataset_log(&train_ds,"train");
+        dataset_log(&val_ds,"val");
     }
 
-    const int B=cfg.batch_size;
-    const int T=cfg.seq_len;
-    uint8_t* x = (uint8_t*)malloc((size_t)B * (size_t)T);
-    uint8_t* y = (uint8_t*)malloc((size_t)B * (size_t)T);
-    dataset_next_batch(&train_ds, B, T, x, y);
+    int B = cfg.batch_size;
+    int T = cfg.seq_len;
 
-    if (rank==0){
-        int preview = (T<16) ? T : 16;
-        printf("batch preview x[0,0:%d): ", preview);
-        for (int t = 0; t < preview; ++t) 
-		printf("%u ", (unsigned)x[t]);
-                //printf("test %d", t);
-	printf("\n");
-        printf("batch preview y[0,0:%d): ", preview);
-        for (int t = 0; t < preview; ++t) printf("%u ", (unsigned)y[t]);
+    uint8_t *x = malloc(B*T);
+    uint8_t *y = malloc(B*T);
+
+    dataset_next_batch(&train_ds,B,T,x,y);
+
+    if(rank==0){
+        int prev=(T<16)?T:16;
+        printf("batch preview x[0]: ");
+        for(int i=0;i<prev;i++) printf("%u ",(unsigned)x[i]);
+        printf("\n");
+        printf("batch preview y[0]: ");
+        for(int i=0;i<prev;i++) printf("%u ",(unsigned)y[i]);
         printf("\n");
     }
 
-    free(x); free(y);
+    free(x);
+    free(y);
 
+    //gpu check
     nano2_cuda_selftest();
-    if (rank==0) printf("cuda test: OK\n");
+    if(rank==0) printf("cuda test OK\n");
 
-    //test model
-    //2-layer MLP w/ ReLU
+    //==============================
+    //     MODEL TESTING
+    //==============================
+
     if(rank==0){
-     printf("\nmodel test:\n");
-     //printf("check later")
-     extern struct Model* model_new(int d_model);
-     extern void model_forward(struct Model *m, struct Tensor *x_in, struct Tensor *x_tmp1,struct Tensor *x_out);
-     extern void model_free(struct Model *m);
-     extern struct Tensor* tensor_create(int r, int c);
-     extern void tensor_fill(struct Tensor *t, float v);
-     extern void tensor_show(struct Tensor *t);
-     extern void tensor_free(struct Tensor *t);
+        printf("\n=== model test ===\n");
 
-     int d= cfg.d_model;//match config
-     struct Model *m =model_new(d);
+        int dm = cfg.d_model;
+        int batch_test = 2;
 
-     //batch= 1for now
-     struct Tensor *x_in=tensor_create(1, d);
-     struct Tensor *x_tmp1=tensor_create(1, d * 4); // hidden size
-     struct Tensor *x_out =tensor_create(1, d);
+        struct Model *m = model_new(dm);
 
-     tensor_fill(x_in,1.0f);//test input = ones
-     model_forward(m, x_in,x_tmp1, x_out);
-     tensor_show(x_out);//preview
-     tensor_free(x_in);
-     tensor_free(x_tmp1);
-     tensor_free(x_out);
-     model_free(m);
+        struct Tensor *x_in   = tensor_create(batch_test, dm);
+        struct Tensor *x_tmp1 = tensor_create(batch_test, dm * 4);
+        struct Tensor *x_out  = tensor_create(batch_test, dm);
+
+        //just fill with tiny random-ish
+        tensor_fill_random(x_in);
+
+        printf("input preview:\n");
+        tensor_show(x_in);
+
+        //forward
+        model_forward(m, x_in, x_tmp1, x_out);
+
+        printf("output preview:\n");
+        tensor_show(x_out);
+
+        //cleanup
+        tensor_free(x_in);
+        tensor_free(x_tmp1);
+        tensor_free(x_out);
+        model_free(m);
     }
 
     dataset_free(&train_ds);
