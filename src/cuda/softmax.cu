@@ -1,51 +1,54 @@
-//row-softmax
-//1 block/row
-//reduce max then reduce sum
-//TODO: remove debugs
-//
-
+//TODO: logic but ordered steps
+//remove sync bugs
+// add base
+//TODO:
 #include <cuda_runtime.h>
 #include <math_constants.h>
 
-__global__ void sm_row(const float* x,float* y,int R,int C){
-    int r = blockIdx.x; if(r>=R) return;
-    extern __shared__ float sm[];
-    float* smax = sm;
-    float* ssum = sm + blockDim.x;
+__global__ void sm_kernel(const float* x,float* y,int R,int C){
+    int r=blockIdx.x; if(r>=R) return;
 
-    int tid = threadIdx.x;
-    int step= blockDim.x;
-    size_t base = (size_t)r*C;
+    extern __shared__ float mem[];
+    float* smax=mem;
+    float* ssum=mem+blockDim.x;
 
-    float m=-CUDART_INF_F;
-    for(int j=tid;j<C;j+=step) m = fmaxf(m, x[base+j]);
-    smax[tid]=m; __syncthreads();
+    int tid=threadIdx.x, step=blockDim.x;
+    size_t base=(size_t)r*C;
+
+    //max
+    float mx=-CUDART_INF_F;
+    for(int j=tid;j<C;j+=step) mx=fmaxf(mx,x[base+j]);
+    smax[tid]=mx; __syncthreads();
+
     for(int s=blockDim.x>>1;s>0;s>>=1){
-        if(tid<s && smax[tid+s]>smax[tid]) smax[tid]=smax[tid+s];
+        if(tid<s) smax[tid]=fmaxf(smax[tid],smax[tid+s]);
         __syncthreads();
     }
-    float mx=smax[0];
+    mx = smax[0];
 
-    float smu=0;
+    //sumexp
+    float sm=0.f;
     for(int j=tid;j<C;j+=step){
         float e=expf(x[base+j]-mx);
-        y[base+j]=e;
-        smu+=e;
+        y[base+j]=e; sm+=e;
     }
-    ssum[tid]=smu; __syncthreads();
+    ssum[tid]=sm; __syncthreads();
+
     for(int s=blockDim.x>>1;s>0;s>>=1){
         if(tid<s) ssum[tid]+=ssum[tid+s];
         __syncthreads();
     }
-    float total = ssum[0] + 1e-20f;
+    float denom = ssum[0]+1e-20f;
 
-    for(int j=tid;j<C;j+=step) y[base+j]/=total;
+    //norm
+    for(int j=tid;j<C;j+=step)
+        y[base+j] /= denom;
 }
 
 extern "C"
 void nano2_softmax_forward(const float* x,float* y,int R,int C){
     if(R<=0||C<=0) return;
-    int th = (C>=256?256:(C>=128?128:64));
-    sm_row<<<R,th,th*2*sizeof(float)>>>(x,y,R,C);
+    int th=(C>=256?256:(C>=128?128:64));
+    sm_kernel<<<R,th,th*2*sizeof(float)>>>(x,y,R,C);
 }
 

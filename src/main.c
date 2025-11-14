@@ -1,41 +1,38 @@
+//actually try the gpu ops with real model buffers from M
+//TODO: real forward
+//TODO: rm debug prints
+//fix xent warnings
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-
 #include <mpi.h>
 #include <cuda_runtime_api.h>
-
 #include "config.h"
 #include "dataset.h"
 #include "model.h"
-
 //gpu ops
-extern void nano2_gelu_forward(const float *x, float *y, int n, int approx);
-extern void nano2_attention_forward(const float *x_ln, int B,int T,int D,
+extern void nano2_gelu_forward(const float *x,float *y,int n,int approx);
+extern void nano2_attention_forward(const float *x_ln,int B,int T,int D,
                                     const float *Wq,const float *Wk,const float *Wv,const float *Wo,
                                     float *q,float *k,float *v,
                                     float *scores,float *probs,
                                     float *ctx,float *out);
-extern float nano2_xent_forward_mean(const float *logits,const int *targets,
-                                     int rows,int cols,float *dlogits);
-extern void nano2_softmax_forward(const float *x,float *y,int rows,int cols);
+extern void nano2_softmax_forward(const float* x,float* y,int rows,int cols);
+extern float nano2_xent_forward_mean(const float* logits,const int* targets,
+                                     int rows,int cols,float* dlogits);
 static void get_config_path(int argc,char**argv,char*out,size_t cap){
     const char* def="./configs/nano2.json";
     strncpy(out,def,cap-1); out[cap-1]=0;
     for(int i=1;i<argc;i++){
         if(strncmp(argv[i],"--config=",9)==0){
             strncpy(out,argv[i]+9,cap-1); out[cap-1]=0;
-        } else if(strcmp(argv[i],"--config")==0 && i+1<argc){
-            strncpy(out,argv[i+1],cap-1); out[cap-1]=0;
         }
     }
 }
-
 int main(int argc,char**argv){
     MPI_Init(&argc,&argv);
-
-    //gpu select
     int local_rank=0;
     {
         MPI_Comm local;
@@ -43,76 +40,72 @@ int main(int argc,char**argv){
         MPI_Comm_rank(local,&local_rank);
         MPI_Comm_free(&local);
     }
-    int dev_count=0; cudaGetDeviceCount(&dev_count);
-    int dev=(dev_count? local_rank % dev_count:0);
-    cudaSetDevice(dev);
+    int dc=0; cudaGetDeviceCount(&dc);
+    cudaSetDevice(dc? local_rank % dc:0);
 
-    //load config
+    //load cfg
     char cfg_path[512];
     get_config_path(argc,argv,cfg_path,sizeof(cfg_path));
     struct Config cfg;
     config_from_file(cfg_path,&cfg);
 
-    printf("cfg loaded\n");
-
-    //quick load datasets
-    struct DataSet train_ds, val_ds;
+    //load ds
+    struct DataSet train_ds,val_ds;
     dataset_load(cfg.train_path,&train_ds);
     dataset_load(cfg.val_path,&val_ds);
 
-    //model alloc
+    //model
     struct Model M;
     model_init(&M,&cfg);
 
-    //GPU ops quick tests
-    printf("gpu ops test...\n");
+    int B=cfg.batch_size;
+    int T=cfg.seq_len;
+    int D=cfg.d_model;
+    int BT = B*T;
 
-    //gelu test
-    //fix
-    {
-        float h_in[8];
-        for(int i=0;i<8;i++) h_in[i]=0.1f*i;
-        float *d_in, *d_out;
-        cudaMalloc(&d_in, 8*sizeof(float));
-        cudaMalloc(&d_out,8*sizeof(float));
-        cudaMemcpy(d_in,h_in,8*sizeof(float),cudaMemcpyHostToDevice);
+    //fake x (device)
+    size_t nbytes = (size_t)BT * D * sizeof(float);
+    float *h_x = (float*)malloc(nbytes);
+    for(size_t i=0;i<BT*(size_t)D;i++) h_x[i] = (float)(i%13)*0.05f;
+    nano2_copy_host_to_device(M.buf.x, h_x, nbytes);
+    free(h_x);
 
-        nano2_gelu_forward(d_in,d_out,8,0);
-        cudaFree(d_in); cudaFree(d_out);
-        printf(" gelu ok\n");
-    }
+    printf("v2: running attention...\n");
+    nano2_attention_forward(
+        M.buf.x_ln2, // just reusing;
+	//say they normally LN first??
+	//fix layer
+	//rm warning vocab 
+        B,T,D,
+        M.p.Wq, M.p.Wk, M.p.Wv, M.p.Wo,
+        M.buf.q, M.buf.k, M.buf.v,
+        M.buf.scores, M.buf.probs,
+        M.buf.attn_out,
+        M.buf.x_res1
+    );
 
-    //softmax test
-    {
-        float h_x[6]={1,2,3,4,5,6};
-        float *dx,*dy;
-        cudaMalloc(&dx,6*sizeof(float));
-        cudaMalloc(&dy,6*sizeof(float));
-        cudaMemcpy(dx,h_x,6*sizeof(float),cudaMemcpyHostToDevice);
-        nano2_softmax_forward(dx,dy,2,3);
-        cudaFree(dx); cudaFree(dy);
-        printf(" softmax ok\n");
-    }
+    printf("v2: running gelu on ff1...\n");
+    //fake treat ff1 as linear output
+    int FFN = cfg.ffn_mult * D;
+    int n_ff1 = BT * FFN;
+    nano2_gelu_forward(M.buf.ff1, M.buf.ff1, n_ff1, 0);
 
-    //xent test
-    {
-        float h_logits[6]={1,2,3,4,5,6};
-        int   h_tgt[2]={2,1};
-        float *d_logits,*d_dlog;
-        int  *d_tgt;
-        cudaMalloc(&d_logits,6*sizeof(float));
-        cudaMalloc(&d_dlog,6*sizeof(float));
-        cudaMalloc(&d_tgt,2*sizeof(int));
-        cudaMemcpy(d_logits,h_logits,6*sizeof(float),cudaMemcpyHostToDevice);
-        cudaMemcpy(d_tgt,h_tgt,2*sizeof(int),cudaMemcpyHostToDevice);
+    printf("v2: softmax on logits...\n");
+    nano2_softmax_forward(M.buf.logits, M.buf.logits, BT, cfg.vocab_size);
 
-        float L = nano2_xent_forward_mean(d_logits,d_tgt,2,3,d_dlog);
-        printf(" xent ok: L=%f\n",L);
+    printf("v2: xent loss test...\n");
+    int *h_tgt = (int*)malloc(BT*sizeof(int));
+    for(int i=0;i<BT;i++) h_tgt[i] = i % cfg.vocab_size;
 
-        cudaFree(d_logits); cudaFree(d_dlog); cudaFree(d_tgt);
-    }
+    int *d_tgt; cudaMalloc(&d_tgt, BT*sizeof(int));
+    cudaMemcpy(d_tgt,h_tgt,BT*sizeof(int),cudaMemcpyHostToDevice);
+    free(h_tgt);
 
-    printf("attention test skip in v1 (needs model buffers)\n");
+    float L = nano2_xent_forward_mean(M.buf.logits,d_tgt, BT, cfg.vocab_size,
+                                      M.buf.attn_out/*reusing as dlogits*/);
+    printf("v2 loss = %f\n",L);
+
+    cudaFree(d_tgt);
 
     model_free(&M);
     dataset_free(&train_ds);
