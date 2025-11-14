@@ -15,6 +15,12 @@ add_executable(nano2
   src/config.c
   src/data.c
   src/cuda/dummy_kernels.cu
+  src/cuda/gemm.cu
+  src/cuda/layernorm.cu
+  src/cuda/attention.cu
+  src/cuda/gelu.cu
+  src/cuda/softmax.cu
+  src/cuda/loss.cu
   src/model.c
   src/tensor.c
 )
