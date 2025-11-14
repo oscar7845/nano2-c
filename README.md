@@ -4,11 +4,11 @@ A small Transformer from scratch trained on TinyStories (https://huggingface.co/
 Single GPU first; same code also runs multi box with CUDA aware MPI.
 
 Decoder
-Embed (byte, vector)
-+positional (sinusoidal added)
-x=x+Attn(LN(x)), which is (LN, attn, +res)
-x=x+FFN(LN(x)), which is (LN, FFN, +res)
-linear (tied to embedding), softmax, logits, xent
+- Embed (byte, vector)
+- +positional (sinusoidal added)
+- x=x+Attn(LN(x)), which is (LN, attn, +res)
+- x=x+FFN(LN(x)), which is (LN, FFN, +res)
+- linear (tied to embedding), softmax, logits, xent
 
 ## Helpful commands 
 

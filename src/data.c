@@ -1,7 +1,9 @@
-//data loader (bytes)
-//simple sequential batcher
-//TODO: 
-// 
+//dataset loader
+//sequential batcher
+//still byte-level
+//TODO:keep DataSet ptrs
+//ram warns? why
+//ftell remove later
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -9,26 +11,26 @@
 
 struct DataSet {
     uint8_t *data;
-    size_t n;       // how many bytes
-    size_t cursor;  // where next batch starts
-    char path[512];
+    size_t n;//total tokens
+    size_t cursor;  //current pos
+    char path[512]; //saved so we can print it
 };
 
-//fwd decls
-int dataset_load(const char* path, struct DataSet* ds);
-void dataset_free(struct DataSet* ds);
-void dataset_reset(struct DataSet* ds, size_t pos);
-void dataset_next_batch(struct DataSet* ds, int B, int T, uint8_t* x, uint8_t* y);
-void dataset_log(const struct DataSet* ds, const char* tag);
+int  dataset_load(const char *path, struct DataSet *ds);
+void dataset_free(struct DataSet *ds);
+void dataset_reset(struct DataSet *ds, size_t pos);
+void dataset_next_batch(struct DataSet *ds, int B, int T, uint8_t *x, uint8_t *y);
+void dataset_log(const struct DataSet *ds, const char *tag);
 
 
-//load whole file into RAM (just bytes)
-int dataset_load(const char* path, struct DataSet* ds){
+//load whole file into RAM (byte tokens)
+//blocking
+int dataset_load(const char *path, struct DataSet *ds){
     memset(ds, 0, sizeof(*ds));
 
     FILE *f = fopen(path, "rb");
     if(!f){
-        printf("dataset_load: can't open %s\n", path);
+        fprintf(stderr, "dataset_load: failed to open %s\n", path);
         return -1;
     }
 
@@ -36,21 +38,26 @@ int dataset_load(const char* path, struct DataSet* ds){
     long sz = ftell(f);
     rewind(f);
 
+    if(sz <= 0){
+        fprintf(stderr, "dataset_load: empty file? %s\n", path);
+        fclose(f);
+        return -1;
+    }
+
     ds->n = (size_t)sz;
-    //alloc at least 1 byte so free() is always safe-ish
-    ds->data = (uint8_t*)malloc(ds->n ? ds->n : 1);
+    ds->data = (uint8_t*)malloc(ds->n);
     if(!ds->data){
         fclose(f);
-        printf("dataset_load: malloc failed\n");
         return -1;
     }
 
     fread(ds->data, 1, ds->n, f);
     fclose(f);
 
+    //init cursor
     ds->cursor = 0;
 
-    //store path
+    //save path
     size_t L = strlen(path);
     if(L >= sizeof(ds->path)) L = sizeof(ds->path) - 1;
     memcpy(ds->path, path, L);
@@ -58,19 +65,16 @@ int dataset_load(const char* path, struct DataSet* ds){
 
     return 0;
 }
-
-
-//free memory + clear struct
-void dataset_free(struct DataSet* ds){
-    if(!ds) return;
+void dataset_free(struct DataSet *ds){
     free(ds->data);
     memset(ds, 0, sizeof(*ds));
 }
 
 
-//just jump cursor somewhere (wrap if needed)
-//small diff: mod n directly (old one did n-1)
-void dataset_reset(struct DataSet* ds, size_t pos){
+
+//move cursor (wrap around)
+//small mod logic
+void dataset_reset(struct DataSet *ds, size_t pos){
     if(ds->n == 0){
         ds->cursor = 0;
         return;
@@ -79,42 +83,41 @@ void dataset_reset(struct DataSet* ds, size_t pos){
 }
 
 
-//make batch:
-// x[b,t] = data[i]
-// y[b,t] = data[i+1] (wrap around)
-// basically next-token prediction
-void dataset_next_batch(struct DataSet* ds, int B, int T, uint8_t* x, uint8_t* y){
+//next batch:
+//x[b,t] = token i
+//y[b,t] = token (i+1)
+//wraps around file
+void dataset_next_batch(struct DataSet *ds, int B, int T, uint8_t *x, uint8_t *y){
     if(ds->n == 0) return;
 
-    size_t N = ds->n;
-    size_t BT = (size_t)B * (size_t)T; //not used but helps mental check
+    const size_t N = ds->n;
+    const size_t BS = (size_t)B;
+    const size_t TS = (size_t)T;
 
-    for(size_t b=0; b<(size_t)B; b++){
-        //each row starts at cursor + b*T
-        size_t start = (ds->cursor + b*(size_t)T) % N;
+    for(size_t b=0; b<BS; b++){
+        size_t start = (ds->cursor + b*TS) % N;
+        uint8_t *xb = x + b*TS;
+        uint8_t *yb = y + b*TS;
 
-        uint8_t *xb = x + b*(size_t)T;
-        uint8_t *yb = y + b*(size_t)T;
-
-        for(size_t t=0; t<(size_t)T; t++){
+        for(size_t t=0; t<TS; t++){
             size_t i = (start + t) % N;
             xb[t] = ds->data[i];
-            //next-token with wrap
+            // next token (predict next byte)
             yb[t] = ds->data[(i+1) % N];
         }
     }
 
-    //advance cursor for next call
-    ds->cursor = (ds->cursor + (size_t)B*(size_t)T) % N;
+    //advance global cursor (wrap)
+    ds->cursor = (ds->cursor + BS*TS) % N;
 }
 
 
-//tiny logger
-void dataset_log(const struct DataSet* ds, const char* tag){
-    printf("[data] %s: %s | n=%zu | cursor=%zu\n",
-           tag?tag:"ds",
-           ds->path[0] ? ds->path : "(no name)",
-           ds->n,
-           ds->cursor);
+//tiny print helper
+void dataset_log(const struct DataSet *ds, const char *tag){
+    printf("[data] %s: %s | tokens=%zu | cursor=%zu\n",
+        tag ? tag : "ds",
+        ds->path[0] ? ds->path : "(unnamed)",
+        ds->n,
+        ds->cursor);
 }
 
