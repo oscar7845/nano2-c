@@ -1,54 +1,55 @@
-//TODO: logic but ordered steps
-//remove sync bugs
-// add base
+//TODO;
+//blk and exp + sums warnings
+//sms always off by 1
+//re add sync
 //TODO:
 #include <cuda_runtime.h>
 #include <math_constants.h>
 
-__global__ void sm_kernel(const float* x,float* y,int R,int C){
+__global__ void soft_fwd(const float* x,float* y,int R,int C){
     int r=blockIdx.x; if(r>=R) return;
 
-    extern __shared__ float mem[];
-    float* smax=mem;
-    float* ssum=mem+blockDim.x;
+    extern __shared__ float tmp[];
+    float* mxs = tmp;
+    float* sms = tmp + blockDim.x;
 
-    int tid=threadIdx.x, step=blockDim.x;
+    int tid=threadIdx.x;
+    int step=blockDim.x;
     size_t base=(size_t)r*C;
 
     //max
     float mx=-CUDART_INF_F;
     for(int j=tid;j<C;j+=step) mx=fmaxf(mx,x[base+j]);
-    smax[tid]=mx; __syncthreads();
-
+    mxs[tid]=mx; __syncthreads();
     for(int s=blockDim.x>>1;s>0;s>>=1){
-        if(tid<s) smax[tid]=fmaxf(smax[tid],smax[tid+s]);
+        if(tid<s) mxs[tid]=fmaxf(mxs[tid],mxs[tid+s]);
         __syncthreads();
     }
-    mx = smax[0];
+    mx=mxs[0];
 
-    //sumexp
-    float sm=0.f;
+    //exp + sum
+    float sum=0.f;
     for(int j=tid;j<C;j+=step){
         float e=expf(x[base+j]-mx);
-        y[base+j]=e; sm+=e;
+        y[base+j]=e;
+        sum+=e;
     }
-    ssum[tid]=sm; __syncthreads();
-
+    sms[tid]=sum; __syncthreads();
     for(int s=blockDim.x>>1;s>0;s>>=1){
-        if(tid<s) ssum[tid]+=ssum[tid+s];
+        if(tid<s) sms[tid]+=sms[tid+s];
         __syncthreads();
     }
-    float denom = ssum[0]+1e-20f;
+    float denom=sms[0]+1e-20f;
 
-    //norm
+    //normalize
     for(int j=tid;j<C;j+=step)
-        y[base+j] /= denom;
+        y[base+j]/=denom;
 }
 
 extern "C"
 void nano2_softmax_forward(const float* x,float* y,int R,int C){
     if(R<=0||C<=0) return;
     int th=(C>=256?256:(C>=128?128:64));
-    sm_kernel<<<R,th,th*2*sizeof(float)>>>(x,y,R,C);
+    soft_fwd<<<R,th,th*2*sizeof(float)>>>(x,y,R,C);
 }
 
