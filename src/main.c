@@ -1,5 +1,7 @@
-//TODO:
+//now i use nano2_forward_loss() instead of hand-wiring GPU ops
+//TODO: rm debug prints
 //
+#include "nano2_model.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,20 +11,23 @@
 
 #include "config.h"
 #include "dataset.h"
-#include "model.h"
 
-//gpu ops
-extern void nano2_attention_forward(...);
-extern void nano2_gelu_forward(const float*,float*,int,int);
-extern void nano2_softmax_forward(const float*,float*,int,int);
-extern float nano2_xent_forward_mean(const float*,const int*,int,int,float*);
-
-static void get_config_path(int a,char**v,char*out,size_t n){
-    strncpy(out,"./configs/nano2.json",n-1); out[n-1]=0;
+static void get_config_path(int ac,char**av,char*out,size_t cap){
+    const char* def="./configs/nano2.json";
+    strncpy(out,def,cap-1); out[cap-1]=0;
+    for(int i=1;i<ac;i++){
+        if(strncmp(av[i],"--config=",9)==0){
+            strncpy(out,av[i]+9,cap-1); out[cap-1]=0;
+        }
+    }
 }
 
 int main(int argc,char**argv){
     MPI_Init(&argc,&argv);
+
+    int rank=0, world=1;
+    MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+    MPI_Comm_size(MPI_COMM_WORLD,&world);
 
     int local_rank=0;
     {
@@ -31,81 +36,83 @@ int main(int argc,char**argv){
         MPI_Comm_rank(loc,&local_rank);
         MPI_Comm_free(&loc);
     }
-    int devc=0; cudaGetDeviceCount(&devc);
-    cudaSetDevice(devc? local_rank % devc : 0);
+
+    int dc=0; cudaGetDeviceCount(&dc);
+    int dev = dc? local_rank % dc : 0;
+    cudaSetDevice(dev);
+
+    if(rank==0){
+        printf("v3: world=%d local_rank=%d dev=%d\n",world,local_rank,dev);
+    }
 
     //config
-    struct Config cfg;
     char cfg_path[512];
     get_config_path(argc,argv,cfg_path,sizeof(cfg_path));
+
+    struct Config cfg;
     config_from_file(cfg_path,&cfg);
 
-    //data
+    if(rank==0){
+        printf("config: %s\n",cfg_path);
+        config_log(&cfg);
+    }
+
+    //dataset
     struct DataSet train_ds,val_ds;
     dataset_load(cfg.train_path,&train_ds);
     dataset_load(cfg.val_path,&val_ds);
 
+    if(rank==0){
+        dataset_log(&train_ds,"train");
+        dataset_log(&val_ds,"val");
+    }
+
     //model
     struct Model M;
     model_init(&M,&cfg);
+    if(rank==0) model_log_summary(&M,&cfg);
 
-    int B=cfg.batch_size, T=cfg.seq_len, D=cfg.d_model;
-    int BT=B*T;
+    //real batch tokens
+    int B=cfg.batch_size, T=cfg.seq_len, BT=B*T;
+    uint8_t* x = malloc(BT);
+    uint8_t* y = malloc(BT);
+    dataset_next_batch(&train_ds,B,T,x,y);
 
-    //make real batch tokens (x,y)
-    uint8_t* h_x_tok = malloc(BT);
-    uint8_t* h_y_tok = malloc(BT);
-    dataset_next_batch(&train_ds,B,T,h_x_tok,h_y_tok);
-
-    //(student) fake embed: shove token values into x buffer
-    float* h_x = malloc((size_t)BT*D*sizeof(float));
-    for(int i=0;i<BT;i++){
-        for(int j=0;j<D;j++){
-            h_x[i*D+j] = (float)(h_x_tok[i])*0.01f; // fake embed by scaling
-        }
+    //preview
+    if(rank==0){
+        int pv = (T<16? T:16);
+        printf("preview x[0]: ");
+        for(int i=0;i<pv;i++) printf("%u ",(unsigned)x[i]);
+        printf("\n");
     }
-    nano2_copy_host_to_device(M.buf.x,h_x,(size_t)BT*D*sizeof(float));
-    free(h_x);
 
-    //pass x->x_ln1
-    cudaMemcpy(M.buf.x_ln1,M.buf.x,(size_t)BT*D*sizeof(float),cudaMemcpyDeviceToDevice);
+    //timed forward
+    cudaEvent_t t0,t1;
+    cudaEventCreate(&t0); cudaEventCreate(&t1);
+    cudaEventRecord(t0);
 
-    //attn
-    nano2_attention_forward(
-        M.buf.x_ln1,B,T,D,
-        M.p.Wq,M.p.Wk,M.p.Wv,M.p.Wo,
-        M.buf.q,M.buf.k,M.buf.v,
-        M.buf.scores,M.buf.probs,
-        M.buf.attn_out,
-        M.buf.x_res1
-    );
+    float loss = nano2_forward_loss(&M,x,y);
+    cudaDeviceSynchronize();
 
-    //FF fake
-    cudaMemcpy(M.buf.ff1,M.buf.x_res1,(size_t)BT*D*sizeof(float),cudaMemcpyDeviceToDevice);
-    nano2_gelu_forward(M.buf.ff1,M.buf.ff1,BT*D,1);
-    cudaMemcpy(M.buf.ff2,M.buf.ff1,(size_t)BT*D*sizeof(float),cudaMemcpyDeviceToDevice);
+    cudaEventRecord(t1);
+    cudaEventSynchronize(t1);
+    float ms=0;
+    cudaEventElapsedTime(&ms,t0,t1);
 
-    //out->logits
-    cudaMemcpy(M.buf.logits,M.buf.ff2,(size_t)BT*D*sizeof(float),cudaMemcpyDeviceToDevice);
+    if(rank==0){
+        double toks = (double)BT;
+        printf("v3 mean loss: %.6f\n",loss);
+        printf("time: %.3f ms | toks=%d | toks/sec=%.0f\n",
+               ms, BT, toks/(ms*1e-3));
+    }
 
-    //softmax on vocab (still mismatched dims → student cheat)
-    nano2_softmax_forward(M.buf.logits,M.buf.logits,BT,cfg.vocab_size);
-
-    //targets
-    int* h_tgt = malloc(BT*sizeof(int));
-    for(int i=0;i<BT;i++) h_tgt[i]= h_y_tok[i] % cfg.vocab_size;
-    int* d_tgt; cudaMalloc(&d_tgt,BT*sizeof(int));
-    cudaMemcpy(d_tgt,h_tgt,BT*sizeof(int),cudaMemcpyHostToDevice);
-
-    float L = nano2_xent_forward_mean(M.buf.logits,d_tgt,BT,cfg.vocab_size,
-                                      M.buf.attn_out);
-    printf("v2 loss = %f\n",L);
-
-    cudaFree(d_tgt);
-    free(h_tgt);
-    free(h_x_tok); free(h_y_tok);
+    cudaEventDestroy(t0);
+   cudaEventDestroy(t1);
+    free(x); free(y);
     model_free(&M);
-    dataset_free(&train_ds); dataset_free(&val_ds);
+    dataset_free(&train_ds);
+    dataset_free(&val_ds);
     MPI_Finalize();
     return 0;
 }
+
