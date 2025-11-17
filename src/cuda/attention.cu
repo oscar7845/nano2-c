@@ -11,6 +11,8 @@ const float* B, int ldb,
 float* C, int ldc,
 float alpha, float beta);
 
+//stable row-wise softmax
+extern "C" void nano2_softmax_forward(const float* x, float* y, int rows, int cols);
 
 //hlpr
 static inline __host__ __device__ int div_up(int a, int b){ return (a + b - 1) / b; }
