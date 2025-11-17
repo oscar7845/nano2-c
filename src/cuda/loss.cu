@@ -1,3 +1,15 @@
+//cross-entropy with stability (and maybe/opt dlogits).
+//given logits[N,V] and int targets[N], calculate:
+//loss_i = -log softmax(logits_i)[target_i] and return the mean over N. 
+//If dlogits != nullptr, write gradient of the
+//MEAN loss w.r.t. logits (so each row's grad is scaled by 1/N):
+//dlogits[i, j] = softmax(logits_i)[j] - 1{j == target_i}, then / N
+//
+//notes:
+//- one blk per row (N). Threads stride across V.
+//- two pass reduction per row: reduce max, then reduce sum(exp(x-max)).
+//- use single atomicAdd into a device scalar for sum of losses; wrapper
+//copies it back and divides by N.
 //TODO:
 #include <cuda_runtime.h>
 #include <math_constants.h>
