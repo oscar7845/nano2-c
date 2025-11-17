@@ -5,31 +5,16 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 #MPI on a single node
-export OMPI_MCA_btl=self,vader
+export OMPI_MCA_btl=self,vader #no network comms for now
 unset OMPI_MCA_btl_tcp_if_include 2>/dev/null || true
 unset OMPI_MCA_oob_tcp_if_include 2>/dev/null || true
 
-#(off) pick a GPU for this run
-#usage: GPU=0 ./scripts/run_local.sh
-if [[ -n "${GPU:-}" ]]; then
-  export CUDA_VISIBLE_DEVICES="${GPU}"
-fi
-
-#config path (override with CONFIG=/path.json)
+NP="${NP:-1}"
 CONFIG="${CONFIG:-./configs/nano2.json}"
 
-#build if missing
-if [[ ! -x ./build/nano2 ]]; then
-  echo "[run_local] nano2 missing; building..."
-  ./scripts/build.sh
-fi
-
-#log
 mkdir -p logs
 ts="$(date +%Y%m%d-%H%M%S)"
-log="logs/local-${ts}.log"
+log="logs/mpi-${ts}.log"
 
-echo "[run_local] exec ./build/nano2 --config ${CONFIG}"
-#use 'exec' so signals (Ctrl-C) propagate cleanly; tee for a local log.
-exec ./build/nano2 --config "${CONFIG}" | tee "${log}"
-
+echo "[run_mpi] exec mpirun -np ${NP} ./build/nano2 --config ${CONFIG}"
+exec mpirun -np "${NP}" ./build/nano2 --config "${CONFIG}" | tee "${log}"
