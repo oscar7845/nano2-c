@@ -1,25 +1,25 @@
-//run with: pack_text_simple <in.txt> <out.bin>
+//pack_text_simple <in.txt> <out.bin>
+
 //byte-level tokenizer where I:
 // -remove UTF-8 BOM if there is (EF BB BF)
 // -convert CRLF and CR to LF
 // -write bytes to out.bin (each byte is a token id in 0-255)
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
-int main(int argc, char** argv) {
-    if (argc != 3) {
+int main(int argc, char** argv){
+    if (argc != 3){
         fprintf(stderr, "run with: %s <in.txt> <out.bin>\n", argv[0]);
         return 2;
     }
     const char* in_path=argv[1];
     const char* out_path=argv[2];
 
-    //read whole file into memory
+    //read whole file into mem
     struct stat st;
-    if (stat(in_path, &st) != 0) { 
+    if (stat(in_path, &st) != 0){ 
 	    perror("stat"); return 1; 
     }
     size_t n = (size_t)st.st_size;

@@ -97,7 +97,11 @@ int main(int argc, char** argv){
     if (rank==0) model_log_summary(&M, &cfg);
 
     //make one batch from train set
-    const int B= cfg.batch_size; const int T = cfg.seq_len; const int BT = B * T;
+    const int B= cfg.batch_size; 
+    const int T = cfg.seq_len; 
+    const int BT = B * T;
+    printf("[host] B=%d T=%d BT=%d\n", B, T, BT);
+
     uint8_t* x= (uint8_t*)malloc((size_t)BT);
     uint8_t* y= (uint8_t*)malloc((size_t)BT);
     dataset_next_batch(&train_ds, B, T, x, y);
@@ -121,6 +125,11 @@ int main(int argc, char** argv){
         printf("[gpu] memory used: %.2f MiB / %.2f MiB\n", used_mib, total_mib);
     }
 
+    if (rank==0){
+        printf("[host] calling nano2_forward_loss.\n");
+        fflush(stdout);
+    }
+
     //run fw once, time it
     cudaEvent_t ev0, ev1; 
     cudaEventCreate(&ev0); 
@@ -129,7 +138,10 @@ int main(int argc, char** argv){
     
     float loss=nano2_forward_loss(&M, x, y);
     cudaDeviceSynchronize();
-
+    if (rank==0){
+      printf("[host] nano2_forward_loss returned loss=%.6f\n", loss);
+    }
+    
     cudaEventRecord(ev1, 0); 
     cudaEventSynchronize(ev1);
     float ms=0.0f; 
