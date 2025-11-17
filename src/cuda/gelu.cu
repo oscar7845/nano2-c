@@ -1,29 +1,46 @@
-//clamp input a bit 
-//TODO: add debug prints option
-//TODO:
+//GELU fw, exact or tanh approx
+//y[i]= 0.5 * x[i] * (1 + erf(x / sqrt(2))) // exact
+//y[i]= 0.5 * x[i] * (1 + tanh(√(2/π) * (x + 0.044715 x^3))) // tanh approx
+//elementwise on flat buff
+//TODO: warning on last f 
 #include <cuda_runtime.h>
 #include <math_constants.h>
 
-__device__ float gelu_fast(float x, int approx){
-    //keep range a bit sane
-    if(x > 12.f) x = 12.f;
-    if(x < -12.f) x = -12.f;
+#ifndef M_SQRT1_2_F
+#define M_SQRT1_2_F 0.70710678118654752440084436210485f
+#endif
+#ifndef SQRT_2_OVER_PI_F
+#define SQRT_2_OVER_PI_F 0.79788456080286535587989211986876f //sqrt(2/pi)
+#endif
 
-    if(approx){
-        float u = 0.79788456f*(x + 0.044715f*x*x*x);
-        return 0.5f * x * (1.f + tanhf(u));
-    } else {
-        return 0.5f * x * (1.f + erff(x * 0.70710678f));
-    }
+__device__ __forceinline__ float gelu_exact_f(float x){
+  return 0.5f * x * (1.0f + erff(x * M_SQRT1_2_F));
 }
 
-__global__ void gelu_k(const float *x, float *y, int n, int approx){
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(i<n) y[i] = gelu_fast(x[i],approx);
+__device__ __forceinline__ float gelu_tanh_f(float x){
+  float x3= x * x * x;
+  float t= SQRT_2_OVER_PI_F * (x + 0.044715f * x3);
+  return 0.5f * x * (1.0f + tanhf(t));
 }
 
-extern "C" void nano2_gelu_forward(const float *x, float *y, int n, int approx){
-    int B=256, G=(n+B-1)/B;
-    gelu_k<<<G,B>>>(x,y,n,approx);
+__global__ void gelu_forward_kernel(const float* __restrict__ x,
+  float* __restrict__ y,
+  int n, int use_tanh){
+  int idx= blockIdx.x * blockDim.x + threadIdx.x;
+  int stride= blockDim.x * gridDim.x;
+  for(int i=idx; i<n; i += stride){
+    float v= x[i];
+    y[i]=use_tanh ? gelu_tanh_f(v) : gelu_exact_f(v);
+  }
+}
+
+
+extern "C" void nano2_gelu_forward(const float* x, float* y, int n, int approximate){
+  if(n<=0) return;
+  int block= 256;
+  int grid=(n+block-1)/block;
+  //cap grid to something reasonable; oversubscription is fine for large n
+  if(grid > 65535) grid=65535;
+  gelu_forward_kernel<<<grid, block>>>(x, y, n, approximate ? 1 : 0);
 }
 
