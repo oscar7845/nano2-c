@@ -125,22 +125,14 @@ int main(int argc, char** argv){
         printf("[gpu] memory used: %.2f MiB / %.2f MiB\n", used_mib, total_mib);
     }
 
-    if (rank==0){
-        printf("[host] calling nano2_forward_loss.\n");
-        fflush(stdout);
-    }
-
     //run fw once, time it
     cudaEvent_t ev0, ev1; 
     cudaEventCreate(&ev0); 
     cudaEventCreate(&ev1);
     cudaEventRecord(ev0, 0);
     
-    float loss=nano2_forward_loss(&M, x, y);
+    float loss=nano2_forward_loss(&M,x,y); //returned loss
     cudaDeviceSynchronize();
-    if (rank==0){
-      printf("[host] nano2_forward_loss returned loss=%.6f\n", loss);
-    }
     
     cudaEventRecord(ev1, 0); 
     cudaEventSynchronize(ev1);
