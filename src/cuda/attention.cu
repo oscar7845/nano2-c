@@ -1,4 +1,21 @@
-//TODO:
+//single head causal self attn fw (fp32)
+//shapes (row-major):
+// x_ln : [B*T, D] (LayerNorm'd tokens)
+// Wq/Wk/Wv/Wo: [D, D]
+// q/k/v: [B*T, D]
+// scores, probs (per batch): [T, T]
+// ctx, out: [B*T, D]
+//for every batch b:
+// Q= X_b @ Wq
+// K= X_b @ Wk
+// V= X_b @ Wv
+// S= (Q @ K^T) * (1/sqrt(D)); apply causal mask (j>i -> -INF)
+// P= softmax(S) row-wise
+// C= P @ V
+// O= C @ Wo
+//using GEMM and softmax
+
+//TODO: rm debugs
 #include <cuda_runtime.h>
 #include <math.h>
 #include "../cuda_check.h"
