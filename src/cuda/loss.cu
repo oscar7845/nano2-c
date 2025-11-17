@@ -1,75 +1,112 @@
-//still 1 block/row
-//TODO: test blk rw 
-//smax error index???
 //TODO:
 #include <cuda_runtime.h>
 #include <math_constants.h>
+#include "../cuda_check.h"
 
-__global__ void xent_fwd(const float* logit,const int* tgt,
-                         int N,int V,float* dlog,float* sumloss)
-{
-    int r = blockIdx.x;
-    if(r>=N) return;
+static inline __host__ __device__ int div_up(int a, int b){ return (a + b - 1) / b; }
 
-    extern __shared__ float buf[];
-    float* smax = buf;
-    float* ssum = buf + blockDim.x;
+__global__ void xent_forward_kernel(const float* __restrict__ logits, //[N,V]
+				    const int* __restrict__ targets,//[N]
+				    int N, int V,
+				    float* __restrict__ dlogits, //[N,V] or nullptr
+				    float* __restrict__ loss_sum) //scalar on device (init to 0)
+				    {
+  int row= blockIdx.x; //one blk per row
+  if(row >= N) return;
 
-    int tid = threadIdx.x;
-    int step = blockDim.x;
-    size_t base = (size_t)r * V;
+  extern __shared__ float smem[];
+  float* smax= smem; //[blockDim.x]
+  float* ssum= smem + blockDim.x; //[blockDim.x]
 
-    //max
-    float m=-CUDART_INF_F;
-    for(int j=tid;j<V;j+=step)
-        m = fmaxf(m, logit[base+j]);
-    smax[tid] = m; __syncthreads();
-    for(int s=blockDim.x>>1;s>0;s>>=1){
-        if(tid<s) smax[tid] = fmaxf(smax[tid], smax[tid+s]);
-        __syncthreads();
+  const int tid= threadIdx.x;
+  const int stride= blockDim.x;
+  const size_t base= (size_t)row * (size_t)V;
+
+
+  //row max for numerical stability
+  float m= -CUDART_INF_F;
+  for(int j=tid; j<V; j += stride){
+    float v= logits[base + j];
+    m=fmaxf(m,v);
+  }
+  smax[tid]=m;
+  __syncthreads();
+  for(int s=blockDim.x >> 1; s > 0; s >>= 1){
+    if(tid<s){ 
+      smax[tid] = fmaxf(smax[tid], smax[tid + s]); 
     }
-    float mx = smax[0];
+    __syncthreads();
+  }
+  float row_max=smax[0];
 
-    //sumexp
-    float sm=0.f;
-    for(int j=tid;j<V;j+=step)
-        sm += expf(logit[base+j] - mx);
-    ssum[tid] = sm; __syncthreads();
-    for(int s=blockDim.x>>1;s>0;s>>=1){
-        if(tid<s) ssum[tid] += ssum[tid+s];
-        __syncthreads();
-    }
-    float srow = ssum[0] + 1e-20f;
 
-    //loss
-    if(tid==0){
-        int t = tgt[r];
-        float z = logit[base+t];
-        float l = (mx + logf(srow)) - z;
-        atomicAdd(sumloss, l);
+  //sum of exp(logits - row_max)
+  float sum = 0.0f;
+  for(int j = tid; j < V; j += stride){
+    sum += expf(logits[base + j] - row_max);
+  }
+  ssum[tid] = sum;
+  __syncthreads();
+  for(int s = blockDim.x >> 1; s > 0; s >>= 1){
+    if(tid < s){ 
+      ssum[tid] += ssum[tid + s]; 
     }
+    __syncthreads();
+  }
+  float row_sum = ssum[0] + 1e-20f; // guard
 
-    //grad
-    if(dlog){
-        float invN = 1.f/N;
-        int t = tgt[r];
-        for(int j=tid;j<V;j+=step){
-            float p = expf(logit[base+j] - mx) / srow;
-            dlog[base+j] = (p - (j==t)) * invN;
-        }
+  //per-row loss contribution (thread 0)
+  if(tid==0){
+    int t= targets[row];
+    float zt= logits[base + t];
+    float lse= row_max + logf(row_sum);
+    float loss= lse - zt;
+    atomicAdd(loss_sum, loss);
+  }
+
+  //optional gradient of MEAN loss
+  if(dlogits){
+    //i will scale by 1/N here so the caller can use it directly
+    float invN = 1.0f / (float)N;
+    int t=0; //bcast target index to all threads via shared memory slot 0
+    if(tid==0){ 
+      ((int*)smax)[0] = targets[row]; 
     }
+    __syncthreads();
+    t = ((int*)smax)[0];
+
+    for(int j=tid; j<V; j += stride){
+      float p= expf(logits[base + j] - row_max) / row_sum;
+      float g= p-(j == t ? 1.0f : 0.0f);
+      dlogits[base+j] = g*invN;
+    }
+  }
 }
 
-extern "C"
-float nano2_xent_forward_mean(const float* L,const int* T,int N,int V,float* dL)
-{
-    if(N<=0||V<=0) return 0.f;
-    int th = (V>256?256:(V>128?128:64));
-    float* dev; cudaMalloc(&dev,4); cudaMemset(dev,0,4);
-    xent_fwd<<<N,th,th*2*sizeof(float)>>>(L,T,N,V,dL,dev);
 
-    float h=0; cudaMemcpy(&h,dev,4,cudaMemcpyDeviceToHost);
-    cudaFree(dev);
-    return h/N;
+extern "C" float nano2_xent_forward_mean(const float* logits, const int* targets,
+  					 int rows, int cols, float* dlogits /*nullable*/)
+					 {
+  if(rows<=0 || cols<=0) return 0.0f;
+  //choose threads per row (something like pow of two)
+  int threads= (cols >= 256) ? 256 : (cols >= 128 ? 128 : 64);
+  dim3 block(threads,1,1);
+  dim3 grid(rows,1,1);
+  size_t shmem= (size_t)threads * 2 * sizeof(float);
+
+  float* d_sum=nullptr;
+  cudaMalloc(&d_sum, sizeof(float));
+  cudaMemset(d_sum, 0, sizeof(float));
+
+  xent_forward_kernel<<<grid, block, shmem>>>(logits, targets, rows, cols, dlogits, d_sum);
+  CUDA_CHECK("xent_forward_kernel");
+  cudaDeviceSynchronize(); //expose any runtime errors now
+  CUDA_CHECK("xent_forward_sync");
+
+  float h_sum=0.0f;
+  cudaMemcpy(&h_sum, d_sum, sizeof(float), cudaMemcpyDeviceToHost);
+  cudaFree(d_sum);
+
+  return h_sum / (float)rows;
 }
 
