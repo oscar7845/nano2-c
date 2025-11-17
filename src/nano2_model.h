@@ -9,7 +9,7 @@ extern "C" {
 //forward-declare Config so we don't duplicate its definition here
 struct Config;
 
-//parameter & buffer shapes (model.c)
+//parameter & buffer shapes so to match (model.c)
 struct Params{
   float *E; // [V, D]
   float *ln1_g, *ln1_b; // [D], [D]

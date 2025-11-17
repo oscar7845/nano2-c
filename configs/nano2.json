@@ -6,7 +6,7 @@
   "vocab_size": 256,
   "d_model": 512,
   "ffn_mult": 4,
-  "lr": 0.0005,
+  "lr": 0.0003,
   "weight_decay": 0.01,
   "clip_grad_norm": 1.0,
   "seed": 42,
