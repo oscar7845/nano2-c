@@ -1,3 +1,14 @@
+//fw pass:
+//- embed + sinusoidal pos
+//- pre-LN --> single-head causal attention --> residual
+//- pre-LN --> FFN (GELU) --> residual
+//- tied LM head (X @ E^T)
+//- cross-entropy mean loss (returns host float)
+//
+//i assume shapes/dims match the Config/Model.
+//allocate temp device buffers for input tokens and targets
+//later, move those to Model so to avoid the per-step allocs
+//TODO: rm debug prints
 #include "nano2_model.h"
 #include <cuda_runtime.h>
 #include <stdint.h>
