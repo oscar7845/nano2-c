@@ -33,7 +33,9 @@ int rows, int cols, float* dlogits /*nullable*/);
 __global__ void u8_to_i32_kernel(const uint8_t* __restrict__ in, int* __restrict__ out, int n){
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
-  for(; i < n; i += stride){ out[i] = (int)in[i]; }
+  for(; i < n; i += stride){ 
+    out[i] = (int)in[i]; 
+  }
 }
 
 //y=a+b (elementwise over n floats)

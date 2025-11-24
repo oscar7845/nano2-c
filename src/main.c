@@ -64,7 +64,9 @@ static void get_config_path(int argc, char** argv, char* out, size_t cap){
 }
 
 int main(int argc, char** argv){
-    MPI_Init(&argc, &argv);
+    //local comm per box since need assign gpu per node
+    //and not global across entire mpi 
+    MPI_Init(&argc, &argv); 
     int rank=0, world=1; MPI_Comm_rank(MPI_COMM_WORLD, &rank); MPI_Comm_size(MPI_COMM_WORLD, &world);
     MPI_Comm local; MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &local);
     int local_rank=0, local_size=1; MPI_Comm_rank(local, &local_rank); MPI_Comm_size(local, &local_size);
@@ -87,7 +89,9 @@ int main(int argc, char** argv){
     }
     
     //load datasets
-    struct DataSet train_ds, val_ds; dataset_load(cfg.train_path, &train_ds); dataset_load(cfg.val_path, &val_ds);
+    struct DataSet train_ds, val_ds; 
+    dataset_load(cfg.train_path, &train_ds); 
+    dataset_load(cfg.val_path, &val_ds);
     if (rank==0){ 
       dataset_log(&train_ds, "train"); dataset_log(&val_ds, "val"); 
     }
@@ -95,6 +99,7 @@ int main(int argc, char** argv){
     //init model
     struct Model M; model_init(&M, &cfg);
     if (rank==0) model_log_summary(&M, &cfg);
+
 
     //make one batch from train set
     const int B= cfg.batch_size; 
