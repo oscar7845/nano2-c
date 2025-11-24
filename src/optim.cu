@@ -43,4 +43,30 @@ extern "C" void nano2_clip_grad_global_norm(float* g, size_t n, float max_norm){
 }
 
 
+//AdamW (weight decay applied to gradients; no bias correction to make simpler)
+__global__ void adamw_kernel(float* __restrict__ p,
+                             float* __restrict__ g,
+                             float* __restrict__ m,
+                             float* __restrict__ v,
+                             size_t n,
+                             float lr, float beta1, float beta2,
+                             float eps, float weight_decay){
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    size_t st = (size_t)blockDim.x * gridDim.x;
+    for (; i < n; i += st){
+        float gi = g[i] + weight_decay * p[i];
+        float mi = m[i] = beta1 * m[i] + (1.0f - beta1) * gi;
+        float vi = v[i] = beta2 * v[i] + (1.0f - beta2) * gi * gi;
+        float upd = mi / (sqrtf(vi) + eps);
+        p[i] -= lr * upd;
+        g[i] = 0.0f; //clear grad for next step
+    }
+}
+extern "C" void nano2_adamw_step(float* params, float* grads, float* m, float* v, size_t n,
+                                 float lr, float beta1, float beta2, float eps, float weight_decay){
+    if (!n) return;
+    int block = 256, grid = (int)((n + block - 1) / block); if (grid > 65535) grid = 65535;
+    adamw_kernel<<<grid, block>>>(params, grads, m, v, n, lr, beta1, beta2, eps, weight_decay);
+    CUDA_CHECK("adamw_kernel");
+}
 
