@@ -2,7 +2,8 @@
 #include "../cuda_check.h"
 #include "embed.h"
 
-//embed+pos
+//embed
+//pos
 extern "C" __global__
 void embed_add_pos_kernel(const uint8_t* __restrict__ tokens,const float* __restrict__ E,
     const float* __restrict__ pos_sin,const float* __restrict__ pos_cos,float* __restrict__ out,
@@ -22,15 +23,15 @@ extern "C" __global__ void embed_add_pos_kernel(const uint8_t* __restrict__ toke
     int tok=(int)tokens[row];
     int t=row%T;
 
-    size_t ebase=(size_t)tok*D;
-    size_t obase=(size_t)row*D;
-    size_t pbase=(size_t)t*H;
+    size_t ebase=(size_t)tok*(size_t)D;
+    size_t obase=(size_t)row*(size_t)D;
+    size_t pbase=(size_t)t*(size_t)H;
 
     for(int d=tid; d<D; d+=stride){
         float v=E[ebase+d];
         int i=d>>1;
-        if((d&1)==0) v+=pos_sin[pbase+i];
-        else v+=pos_cos[pbase+i];
+        float pos=((d&1)==0?pos_sin[pbase+i]:pos_cos[pbase+i]);
+        v+=pos;
         out[obase+d]=v;
     }
 }
@@ -40,6 +41,7 @@ extern "C" void nano2_embed_add_pos(const uint8_t* x,const float* E,
 
     int BT=B*T;
     int threads=(D>=256)?256:(D>=128)?128:64;
+
     dim3 block(threads,1,1);
     dim3 grid(BT,1,1);
 
