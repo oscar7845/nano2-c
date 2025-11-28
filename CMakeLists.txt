@@ -24,6 +24,11 @@ add_executable(nano2
   src/cuda/attention.cu
   src/cuda/loss.cu
   src/train_forward.cu
+  src/nano2_model.h
+  src/optim.cu
+  src/cuda/attention_backward.cu
+  src/train_backward.cu
+  src/cuda/embed.cu
 )
 
 target_link_libraries(nano2 PRIVATE
