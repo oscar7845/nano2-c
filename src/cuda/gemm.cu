@@ -1,5 +1,6 @@
-//typical call: nano2_gemm_f32(0,0, M,N,K, A, K, B, N, C, N, 1.0f, 0.0f);
-//For QK^T (scores): transB = 1 (since K^T is needed)
+//typical call for contiguous row‑major:
+//nano2_gemm_f32(0,0, M,N,K, A, K, B, N, C, N, 1.0f, 0.0f);
+//for QK^T (scores): transB = 1 (since K^T is needed)
 //TODO: rm warns
 #include <cuda_runtime.h>
 #include <stdint.h>
