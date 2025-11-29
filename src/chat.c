@@ -139,110 +139,106 @@ int run_chat(const char* ckpt_file,
     cfg.batch_size=1;
 
     struct Model M;
-    model_init(&M, &cfg);
+    model_init(&M,&cfg);
 
     int loaded=-1;
     if(ckpt_file && ckpt_file[0]){
-        loaded=load_params_into_model(ckpt_file, &M);
+      loaded=load_params_into_model(ckpt_file,&M);
     } else if(ckpt_dir && ckpt_dir[0]){
-        if(use_best){
-            char p[1024];
-            snprintf(p, sizeof(p), "%s/best.params.bin", ckpt_dir);
-            loaded=load_params_into_model(p, &M);
-        } else {
-            int step=0;
-            float last=0.f;
-            loaded=load_checkpoint_latest(ckpt_dir, &M, &cfg, &step, &last);
-            if(loaded==0){
-                fprintf(stdout, "[ckpt] loaded latest (step=%d, val_loss=%.6f)\n",
-                        step, last);
-            }
+      if(use_best){
+        char p[1024]; snprintf(p,sizeof(p),"%s/best.params.bin",ckpt_dir);
+        loaded=load_params_into_model(p,&M);
+        if(loaded!=0) fprintf(stderr,"[chat] best ckpt size mismatch\n");
+      } else {
+        float last=0.f; int step=0;
+        loaded=load_checkpoint_latest(ckpt_dir,&M,&cfg,&step,&last);
+        if(loaded==0){
+            fprintf(stdout,"[ckpt] loaded latest (step=%d, val_loss=%.6f)\n",step,last);
         }
+      }
     }
-
     if(loaded!=0){
-        fprintf(stderr, "[chat] failed to load weights. Aborting.\n");
-        model_free(&M);
-        return 1;
+      fprintf(stderr,"[chat] failed to load weights (file or dir). Aborting.\n");
+      model_free(&M);
+      return 1;
     }
 
-    uint8_t* conv=NULL;
-    size_t clen=0, ccap=0;
+    uint8_t* conv=NULL; size_t clen=0,ccap=0;
 
-    append_cstr(&conv, &clen, &ccap,
+    append_cstr(&conv,&clen,&ccap,
         "You are Assistant.\n"
+        "The conversation alternates as:\n"
         "User: <text>\nAssistant: <text>\n\n");
 
-    setvbuf(stdout, NULL, _IONBF, 0);
-    fprintf(stdout, "== nano2 chat ==\n");
+    setvbuf(stdout,NULL,_IONBF,0);
+    fprintf(stdout,"== nano2 chat ==\n"
+                   "Type your message and press Enter. Type /exit to quit.\n\n");
 
     char line[8192];
-    unsigned int rng=seed ? seed : (unsigned int)time(NULL);
+    unsigned int rng=seed?seed:(unsigned int)time(NULL);
 
     const int T=M.T;
     const int V=M.V;
-
-    uint8_t* x=malloc(T);
-    uint8_t* y=malloc(T);
-    float* last_logits=malloc(V*sizeof(float));
+    uint8_t* x=(uint8_t*)malloc((size_t)T);
+    uint8_t* y=(uint8_t*)malloc((size_t)T);
+    float* last_logits=(float*)malloc((size_t)V*sizeof(float));
 
     while(1){
-        fprintf(stdout, "you> ");
-        if(!fgets(line, sizeof(line), stdin)) break;
-        if(strcmp(line, "/exit\n")==0) break;
+        fprintf(stdout,"you> ");
+        if(!fgets(line,sizeof(line),stdin)) break;
+        if(strcmp(line,"/exit\n")==0 || strcmp(line,"/exit\r\n")==0) break;
 
         size_t L=strlen(line);
-        while(L && (line[L-1]=='\n' || line[L-1]=='\r')){
-            line[--L]=0;
-        }
+        while(L && (line[L-1]=='\n' || line[L-1]=='\r')){ line[--L]=0; }
 
-        append_cstr(&conv, &clen, &ccap, "User: ");
-        append_cstr(&conv, &clen, &ccap, line);
-        append_cstr(&conv, &clen, &ccap, "\nAssistant: ");
+        append_cstr(&conv,&clen,&ccap,"User: ");
+        append_cstr(&conv,&clen,&ccap,line);
+        append_cstr(&conv,&clen,&ccap,"\nAssistant: ");
 
-        fprintf(stdout, "bot> ");
-
+        fprintf(stdout,"bot> ");
         int produced=0;
         int stop=0;
-
         while(!stop && produced<max_new_tokens){
             size_t ctx_len=clen;
-            int take=(ctx_len<(size_t)T)?ctx_len:T;
+            int take=(ctx_len<(size_t)T)?(int)ctx_len:T;
 
-            memcpy(x, conv+(ctx_len-take), take);
-            memset(x+take, 0, T-take);
+            if((size_t)take<ctx_len){
+                memcpy(x,conv+(ctx_len-take),(size_t)take);
+            } else {
+                memcpy(x,conv,(size_t)take);
+            }
 
-            for(int i=0; i<T-1; i++) y[i]=x[i+1];
+            for(int i=take;i<T;++i) x[i]=0;
+
+            for(int i=0;i<T-1;++i) y[i]=x[i+1];
             y[T-1]=0;
 
-            nano2_forward_loss(&M, x, y);
+            (void)nano2_forward_loss(&M,x,y);
 
             int row=take-1;
-            if(row<0) break;
+            if(row<0){
+                break;
+            }
 
-            fetch_last_logits_row(&M, row, last_logits);
+            fetch_last_logits_row(&M,row,last_logits);
 
-            int tok=sample_topk(last_logits, V, top_k, temperature, &rng);
+            int tok=sample_topk(last_logits,V,top_k,temperature,&rng);
             uint8_t b=(uint8_t)tok;
 
-            fputc(readable_ascii(b)?b:' ', stdout);
+            fputc(readable_ascii(b)?(char)b:' ',stdout);
 
-            append_bytes(&conv, &clen, &ccap, &b, 1);
-            produced++;
+            append_bytes(&conv,&clen,&ccap,&b,1);
+            ++produced;
 
             if(b=='\n') stop=1;
         }
+        fprintf(stdout,"\n");
 
-        fprintf(stdout, "\n");
-        append_cstr(&conv, &clen, &ccap, "\n");
+        append_cstr(&conv,&clen,&ccap,"\n");
     }
 
-    free(x);
-    free(y);
-    free(last_logits);
+    free(x); free(y); free(last_logits);
     free(conv);
     model_free(&M);
-
     return 0;
 }
-

@@ -1,0 +1,6 @@
+./build/nano2 \
+  --config ./configs/nano2.json \
+  --chat \
+  --ckpt-dir ./ckpts --best \
+  --max-new=200 --temperature=0.8 --top-k=40 --seed=123
+

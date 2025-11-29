@@ -1,0 +1,11 @@
+{
+  "step": 132000,
+  "val_loss": 2.505098,
+  "n_params": 3281408,
+  "lr": 0.00007845,
+  "seq_len": 256,
+  "batch_size": 16,
+  "d_model": 512,
+  "ffn_mult": 4,
+  "vocab_size": 256
+}
