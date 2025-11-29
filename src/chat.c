@@ -12,6 +12,7 @@
 
 float nano2_forward_loss(struct Model* M,const uint8_t* h_x,const uint8_t* h_y);
 
+//helpers
 static void* xrealloc(void* p,size_t n){
     void* q=realloc(p,n);
     if(!q){ fprintf(stderr,"OOM realloc(%zu)\n",n); exit(1); }
@@ -69,6 +70,7 @@ static int load_params_into_model(const char* path,struct Model* M){
     return 0;
 }
 
+//sampling (cpu)
 static int sample_topk(const float* logits,int V,int top_k,float temperature,unsigned int* rng){
     if(top_k<=0 || top_k>V) top_k=V;
 
@@ -117,7 +119,7 @@ static int sample_topk(const float* logits,int V,int top_k,float temperature,uns
     return idx[top_k-1];
 }
 
-
+//logits fetch
 static void fetch_last_logits_row(struct Model* M,int row,float* host_logits_out){
     size_t off=(size_t)row*(size_t)M->V;
     cudaMemcpy(host_logits_out,M->buf.logits+off,(size_t)M->V*sizeof(float),cudaMemcpyDeviceToHost);
