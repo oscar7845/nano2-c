@@ -1,6 +1,3 @@
-//TODO: append byte
-//sample top k only
-//
 #include "chat.h"
 #include "checkpoint.h"
 #include "nano2_model.h"
@@ -32,34 +29,62 @@ static void append_bytes(uint8_t** buf,size_t* len,size_t* cap,const uint8_t* sr
     *len+=n;
 }
 
-static int load_params_into_model(const char* path,struct Model* M){
-    FILE* f=fopen(path,"rb"); if(!f){ perror("[chat open params]"); return -1; }
-    float* hbuf=(float*)malloc(M->n_params*sizeof(float));
-    if(!hbuf){ fprintf(stderr,"host malloc failed\n"); fclose(f); return -1; }
+static void append_cstr(uint8_t** buf,size_t* len,size_t* cap,const char* s){
+    append_bytes(buf,len,cap,(const uint8_t*)s,strlen(s));
+}
 
-    size_t got=fread(hbuf,sizeof(float),M->n_params,f);
+static int readable_ascii(uint8_t b){
+    return (b=='\n') || (b=='\t') || (b>=32 && b<127);
+}
+
+static float frand01(unsigned int* state){
+    unsigned int x=*state;
+    x^=x<<13; x^=x>>17; x^=x<<5;
+    *state=x;
+    return ((x>>8)+1)/16777217.0f;
+}
+
+static int load_params_into_model(const char* path,struct Model* M){
+    FILE* f=fopen(path,"rb");
+    if(!f){ perror("[chat] open params"); return -1; }
+    float* hbuf=(float*)malloc((size_t)M->n_params*sizeof(float));
+    if(!hbuf){ fprintf(stderr,"[chat] host malloc failed\n"); fclose(f); return -1; }
+
+    size_t got=fread(hbuf,sizeof(float),(size_t)M->n_params,f);
     fclose(f);
-    if(got!=M->n_params){
-        fprintf(stderr,"size mismatch\n");
+    if(got!=(size_t)M->n_params){
+        fprintf(stderr,"[chat] ckpt size mismatch: expected %zu floats, got %zu\n",
+                (size_t)M->n_params,got);
         free(hbuf);
         return -1;
     }
-
-    cudaError_t e=cudaMemcpy(M->flat_params,hbuf,M->n_params*sizeof(float),cudaMemcpyHostToDevice);
+    cudaError_t e=cudaMemcpy(M->flat_params,hbuf,
+                             (size_t)M->n_params*sizeof(float),
+                             cudaMemcpyHostToDevice);
     free(hbuf);
-    if(e!=cudaSuccess) return -1;
+    if(e!=cudaSuccess){
+        fprintf(stderr,"[chat] H2D params failed: %s\n",cudaGetErrorString(e));
+        return -1;
+    }
     return 0;
 }
 
 static int sample_topk(const float* logits,int V,int top_k,float temperature,unsigned int* rng){
     if(top_k<=0 || top_k>V) top_k=V;
+
     float scratch[1024];
+    if(V>(int)(sizeof(scratch)/sizeof(scratch[0]))){
+        fprintf(stderr,"V too large for scratch (%d)\n",V);
+        exit(1);
+    }
     for(int i=0;i<V;++i) scratch[i]=logits[i];
 
     int idx[1024];
     for(int i=0;i<top_k;++i){
         int bi=0;
-        for(int j=1;j<V;++j) if(scratch[j]>scratch[bi]) bi=j;
+        for(int j=1;j<V;++j){
+            if(scratch[j]>scratch[bi]) bi=j;
+        }
         idx[i]=bi;
         scratch[bi]=-INFINITY;
     }
@@ -69,20 +94,22 @@ static int sample_topk(const float* logits,int V,int top_k,float temperature,uns
         float z=logits[idx[i]];
         if(z>maxlog) maxlog=z;
     }
-
     float invT=1.0f/fmaxf(1e-8f,temperature);
     float sum=0.f;
     float probs[1024];
     for(int i=0;i<top_k;++i){
-        float e=expf((logits[idx[i]]-maxlog)*invT);
+        float z=(logits[idx[i]]-maxlog)*invT;
+        float e=expf(z);
         probs[i]=e;
         sum+=e;
     }
-
-    if(sum<=0.f) return idx[0];
+    if(sum<=0.f){
+        return idx[0];
+    }
     for(int i=0;i<top_k;++i) probs[i]/=sum;
 
-    float r=frand01(rng),c=0.f;
+    float r=frand01(rng);
+    float c=0.f;
     for(int i=0;i<top_k;++i){
         c+=probs[i];
         if(r<=c) return idx[i];
@@ -90,50 +117,8 @@ static int sample_topk(const float* logits,int V,int top_k,float temperature,uns
     return idx[top_k-1];
 }
 
-int run_chat(const char* ckpt_file,const char* ckpt_dir,int use_best,struct Config base_cfg,int max_new_tokens,int top_k,float temperature,unsigned int seed){
-    struct Config cfg=base_cfg;
-    cfg.batch_size=1;
-
-    struct Model M;
-    model_init(&M,&cfg);
-
-    int loaded=-1;
-    if(ckpt_file && ckpt_file[0]){
-        loaded=load_params_into_model(ckpt_file,&M);
-    } else if(ckpt_dir && ckpt_dir[0]){
-        if(use_best){
-            char p[1024]; snprintf(p,sizeof(p),"%s/best.params.bin",ckpt_dir);
-            loaded=load_params_into_model(p,&M);
-        } else {
-            float last=0.f; int step=0;
-            loaded=load_checkpoint_latest(ckpt_dir,&M,&cfg,&step,&last);
-            if(loaded==0) fprintf(stdout,"[ckpt] loaded latest step=%d val=%.6f\n",step,last);
-        }
-    }
-    if(loaded!=0){
-        fprintf(stderr,"load fail\n");
-        model_free(&M);
-        return 1;
-    }
-
-    uint8_t* conv=NULL;
-    size_t clen=0,ccap=0;
-    append_cstr(&conv,&clen,&ccap,"You are Assistant.\n");
-
-    setvbuf(stdout,NULL,_IONBF,0);
-
-    char line[8192];
-    unsigned int rng=seed?seed:(unsigned int)time(NULL);
-
-    int T=M.T;
-    int V=M.V;
-    uint8_t* x=(uint8_t*)malloc(T);
-    uint8_t* y=(uint8_t*)malloc(T);
-    float* last_logits=(float*)malloc(V*sizeof(float));
-}
 
 static void fetch_last_logits_row(struct Model* M,int row,float* host_logits_out){
     size_t off=(size_t)row*(size_t)M->V;
-    cudaMemcpy(host_logits_out,M->buf.logits+off,M->V*sizeof(float),cudaMemcpyDeviceToHost);
+    cudaMemcpy(host_logits_out,M->buf.logits+off,(size_t)M->V*sizeof(float),cudaMemcpyDeviceToHost);
 }
-
