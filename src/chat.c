@@ -124,3 +124,77 @@ static void fetch_last_logits_row(struct Model* M,int row,float* host_logits_out
     size_t off=(size_t)row*(size_t)M->V;
     cudaMemcpy(host_logits_out,M->buf.logits+off,(size_t)M->V*sizeof(float),cudaMemcpyDeviceToHost);
 }
+
+int run_chat(const char* ckpt_file,
+             const char* ckpt_dir,
+             int use_best,
+             struct Config base_cfg,
+             int max_new_tokens,
+             int top_k,
+             float temperature,
+             unsigned int seed)
+{
+    struct Config cfg=base_cfg;
+    cfg.batch_size=1;
+
+    struct Model M;
+    model_init(&M, &cfg);
+
+    int loaded=-1;
+    if (ckpt_file && ckpt_file[0]) {
+        loaded=load_params_into_model(ckpt_file, &M);
+    } else if (ckpt_dir && ckpt_dir[0]) {
+        if (use_best) {
+            char p[1024];
+            snprintf(p, sizeof(p), "%s/best.params.bin", ckpt_dir);
+            loaded=load_params_into_model(p, &M);
+        } else {
+            int step=0;
+            float loss=0.f;
+            loaded=load_checkpoint_latest(ckpt_dir, &M, &cfg, &step, &loss);
+            if (loaded==0)
+                printf("[ckpt] loaded latest (step=%d, val_loss=%.6f)\n", step, loss);
+        }
+    }
+
+    if (loaded!=0) {
+        fprintf(stderr, "[chat] failed to load weights\n");
+        model_free(&M);
+        return 1;
+    }
+
+    uint8_t *conv=NULL;
+    size_t clen=0, ccap=0;
+
+    append_cstr(&conv, &clen, &ccap,
+        "You are Assistant.\n"
+        "Conversation format:\n"
+        "User: ...\nAssistant: ...\n\n");
+
+    printf("== nano2 chat ==\n");
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    char line[8192];
+    unsigned int rng=seed ? seed : (unsigned int)time(NULL);
+
+    const int T=M.T, V=M.V;
+    uint8_t *x=malloc(T), *y = malloc(T);
+    float *last_logits=malloc(V * sizeof(float));
+
+    while (1) {
+        printf("you> ");
+        if (!fgets(line, sizeof(line), stdin)) break;
+        if (!strcmp(line, "/exit\n")) break;
+
+        size_t L=strcspn(line, "\r\n");
+        line[L]=0;
+
+        append_cstr(&conv, &clen, &ccap, "User: ");
+        append_cstr(&conv, &clen, &ccap, line);
+        append_cstr(&conv, &clen, &ccap, "\nAssistant: ");
+
+        printf("bot> ");
+
+        int produced=0, stop=0;
+    }
+}
