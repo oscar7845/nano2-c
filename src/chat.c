@@ -151,39 +151,50 @@ int run_chat(const char* ckpt_file,
             loaded=load_params_into_model(p, &M);
         } else {
             int step=0;
-            float loss=0.f;
-            loaded=load_checkpoint_latest(ckpt_dir, &M, &cfg, &step, &loss);
+            float last=0.f;
+            loaded=load_checkpoint_latest(ckpt_dir, &M, &cfg, &step, &last);
+            if(loaded==0){
+                fprintf(stdout, "[ckpt] loaded latest (step=%d, val_loss=%.6f)\n",
+                        step, last);
+            }
         }
     }
 
     if(loaded!=0){
-        fprintf(stderr, "[chat] load failed\n");
+        fprintf(stderr, "[chat] failed to load weights. Aborting.\n");
         model_free(&M);
         return 1;
     }
 
     uint8_t* conv=NULL;
     size_t clen=0, ccap=0;
+
     append_cstr(&conv, &clen, &ccap,
-        "You are Assistant.\nUser: ...\nAssistant: ...\n\n");
+        "You are Assistant.\n"
+        "User: <text>\nAssistant: <text>\n\n");
 
-    fprintf(stdout, "== nano2 chat ==\n");
     setvbuf(stdout, NULL, _IONBF, 0);
+    fprintf(stdout, "== nano2 chat ==\n");
 
-    char line[4096];
+    char line[8192];
     unsigned int rng=seed ? seed : (unsigned int)time(NULL);
 
-    const int T=M.T, V=M.V;
-    uint8_t *x=malloc(T), *y=malloc(T);
-    float *logits=malloc(V*sizeof(float));
+    const int T=M.T;
+    const int V=M.V;
+
+    uint8_t* x=malloc(T);
+    uint8_t* y=malloc(T);
+    float* last_logits=malloc(V*sizeof(float));
 
     while(1){
         fprintf(stdout, "you> ");
         if(!fgets(line, sizeof(line), stdin)) break;
         if(strcmp(line, "/exit\n")==0) break;
 
-        size_t L=strcspn(line, "\r\n");
-        line[L]=0;
+        size_t L=strlen(line);
+        while(L && (line[L-1]=='\n' || line[L-1]=='\r')){
+            line[--L]=0;
+        }
 
         append_cstr(&conv, &clen, &ccap, "User: ");
         append_cstr(&conv, &clen, &ccap, line);
@@ -192,7 +203,9 @@ int run_chat(const char* ckpt_file,
         fprintf(stdout, "bot> ");
 
         int produced=0;
-        while(produced<max_new_tokens){
+        int stop=0;
+
+        while(!stop && produced<max_new_tokens){
             size_t ctx_len=clen;
             int take=(ctx_len<(size_t)T)?ctx_len:T;
 
@@ -203,9 +216,13 @@ int run_chat(const char* ckpt_file,
             y[T-1]=0;
 
             nano2_forward_loss(&M, x, y);
-            fetch_last_logits_row(&M, take-1, logits);
 
-            int tok=sample_topk(logits, V, top_k, temperature, &rng);
+            int row=take-1;
+            if(row<0) break;
+
+            fetch_last_logits_row(&M, row, last_logits);
+
+            int tok=sample_topk(last_logits, V, top_k, temperature, &rng);
             uint8_t b=(uint8_t)tok;
 
             fputc(readable_ascii(b)?b:' ', stdout);
@@ -213,7 +230,7 @@ int run_chat(const char* ckpt_file,
             append_bytes(&conv, &clen, &ccap, &b, 1);
             produced++;
 
-            if(b=='\n') break;
+            if(b=='\n') stop=1;
         }
 
         fprintf(stdout, "\n");
@@ -222,7 +239,7 @@ int run_chat(const char* ckpt_file,
 
     free(x);
     free(y);
-    free(logits);
+    free(last_logits);
     free(conv);
     model_free(&M);
 
