@@ -29,6 +29,8 @@ add_executable(nano2
   src/cuda/attention_backward.cu
   src/train_backward.cu
   src/cuda/embed.cu
+  src/main.c
+  src/checkpoint.c
 )
 
 target_link_libraries(nano2 PRIVATE
