@@ -22,9 +22,9 @@ static void* xrealloc(void* p,size_t n){
 }
 
 static void append_bytes(uint8_t** buf,size_t* len,size_t* cap,const uint8_t* src,size_t n){
-    if(*len+n > *cap){
+    if(*len+n>*cap){
         size_t newcap=*cap?*cap:4096;
-        while(newcap < *len+n) newcap*=2;
+        while(newcap<*len+n) newcap*=2;
         *buf=(uint8_t*)xrealloc(*buf,newcap);
         *cap=newcap;
     }
@@ -33,15 +33,17 @@ static void append_bytes(uint8_t** buf,size_t* len,size_t* cap,const uint8_t* sr
 }
 
 static int load_params_into_model(const char* path,struct Model* M){
-    FILE* f=fopen(path,"rb");
-    if(!f){ perror("[chat open params]"); return -1; }
-
+    FILE* f=fopen(path,"rb"); if(!f){ perror("[chat open params]"); return -1; }
     float* hbuf=(float*)malloc(M->n_params*sizeof(float));
-    if(!hbuf){ fprintf(stderr,"malloc fail\n"); fclose(f); return -1; }
+    if(!hbuf){ fprintf(stderr,"host malloc failed\n"); fclose(f); return -1; }
 
     size_t got=fread(hbuf,sizeof(float),M->n_params,f);
     fclose(f);
-    if(got!=M->n_params){ free(hbuf); return -1; }
+    if(got!=M->n_params){
+        fprintf(stderr,"size mismatch\n");
+        free(hbuf);
+        return -1;
+    }
 
     cudaError_t e=cudaMemcpy(M->flat_params,hbuf,M->n_params*sizeof(float),cudaMemcpyHostToDevice);
     free(hbuf);
@@ -57,7 +59,7 @@ static int sample_topk(const float* logits,int V,int top_k,float temperature,uns
     int idx[1024];
     for(int i=0;i<top_k;++i){
         int bi=0;
-        for(int j=1;j<V;++j) if(scratch[j] > scratch[bi]) bi=j;
+        for(int j=1;j<V;++j) if(scratch[j]>scratch[bi]) bi=j;
         idx[i]=bi;
         scratch[bi]=-INFINITY;
     }
@@ -80,8 +82,7 @@ static int sample_topk(const float* logits,int V,int top_k,float temperature,uns
     if(sum<=0.f) return idx[0];
     for(int i=0;i<top_k;++i) probs[i]/=sum;
 
-    float r=frand01(rng);
-    float c=0.f;
+    float r=frand01(rng),c=0.f;
     for(int i=0;i<top_k;++i){
         c+=probs[i];
         if(r<=c) return idx[i];
@@ -101,15 +102,12 @@ int run_chat(const char* ckpt_file,const char* ckpt_dir,int use_best,struct Conf
         loaded=load_params_into_model(ckpt_file,&M);
     } else if(ckpt_dir && ckpt_dir[0]){
         if(use_best){
-            char p[1024];
-            snprintf(p,sizeof(p),"%s/best.params.bin",ckpt_dir);
+            char p[1024]; snprintf(p,sizeof(p),"%s/best.params.bin",ckpt_dir);
             loaded=load_params_into_model(p,&M);
         } else {
             float last=0.f; int step=0;
             loaded=load_checkpoint_latest(ckpt_dir,&M,&cfg,&step,&last);
-            if(loaded==0){
-                fprintf(stdout,"[ckpt] loaded latest step=%d\n",step);
-            }
+            if(loaded==0) fprintf(stdout,"[ckpt] loaded latest step=%d val=%.6f\n",step,last);
         }
     }
     if(loaded!=0){
@@ -127,8 +125,8 @@ int run_chat(const char* ckpt_file,const char* ckpt_dir,int use_best,struct Conf
     char line[8192];
     unsigned int rng=seed?seed:(unsigned int)time(NULL);
 
-    const int T=M.T;
-    const int V=M.V;
+    int T=M.T;
+    int V=M.V;
     uint8_t* x=(uint8_t*)malloc(T);
     uint8_t* y=(uint8_t*)malloc(T);
     float* last_logits=(float*)malloc(V*sizeof(float));
