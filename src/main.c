@@ -14,7 +14,7 @@
 #include <math.h>
 #include "chat.h"
 
-//foeward declarations (chat.h)
+//forward declarations (chat.h)
 int run_chat(const char* ckpt_file, const char* ckpt_dir, int use_best,
              struct Config cfg_file, int max_new, int top_k, float temp,
              unsigned int seed);

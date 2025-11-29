@@ -5,9 +5,9 @@
 extern "C" {
 #endif
 
-//save params + AdamW state (+ metadata) into dir
-//also writes/updates "latest.*" and "best.*" copies
-//returns 0 on success, nonzero on error
+//save params + AdamW state (+ metadata) into dir.
+//also writes/updates "latest.*" and "best.*" copies for convenience.
+//returns 0 on success, nonzero on error.
 int save_checkpoint(const char* dir,
                     const struct Model* M,
                     const struct Config* cfg,
@@ -15,9 +15,8 @@ int save_checkpoint(const char* dir,
                     float val_loss,
                     int is_best);
 
-//load from "<dir>/latest.*" if it exists 
-//Returns 0 on success
-//if opt state files are missing, leaves M->opt.{m,v} unchanged
+//load from "<dir>/latest.*" if present. Returns 0 on success.
+//if opt state files are missing, leaves M->opt.{m,v} unchanged.
 int load_checkpoint_latest(const char* dir,
                            struct Model* M,
                            struct Config* cfg,
