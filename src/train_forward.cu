@@ -59,7 +59,7 @@ __global__ void add_bias_inplace_kernel(float* __restrict__ X, const float* __re
 
 //embed tokens and add sinusoidal positions: out[row, d] = E[token, d] + pos_{t}[d]
 //i use half-dim sin/cos tables and mix them: even d -> sin, odd d -> cos.
-__global__ void embed_add_pos_kernel(const uint8_t* __restrict__ tokens, const float* __restrict__ E,
+/**__global__ void embed_add_pos_kernel(const uint8_t* __restrict__ tokens, const float* __restrict__ E,
 		const float* __restrict__ pos_sin, const float* __restrict__ pos_cos, float* __restrict__ out,
 		int B, int T, int D){
   int row = blockIdx.x; //which token in [0, B*T)
@@ -79,6 +79,7 @@ __global__ void embed_add_pos_kernel(const uint8_t* __restrict__ tokens, const f
     out[obase+d]=v;
   }
 }
+**/
 
 //run one forward + mean loss
 extern "C" float nano2_forward_loss(struct Model* M, 
