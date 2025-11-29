@@ -31,6 +31,8 @@ add_executable(nano2
   src/cuda/embed.cu
   src/main.c
   src/checkpoint.c
+  src/chat.h
+  src/chat.c
 )
 
 target_link_libraries(nano2 PRIVATE
