@@ -1,7 +1,10 @@
 //one training step: 
-//forward (reusing forward kernels), backward to fill grads,
-//optional MPI allreduce, grad-norm clip, AdamW update
-//TODO: rm debug prints
+//forward (reusing fw kernels), 
+//backward to fill grads,
+//optional MPI allreduce, 
+//grad-norm clip, 
+//AdamW update
+//TODO: check decay prints
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include <math.h>
@@ -41,7 +44,7 @@ extern "C" void nano2_adamw_step(float* params, float* grads, float* m, float* v
 //(attention_backward.cu)
 extern "C" void nano2_softmax_backward(const float* P, const float* dP, float* dS, int rows, int cols);
 
-//reused from forward file
+//Utilities reused from forward file
 static __global__ void u8_to_i32_kernel(const uint8_t* __restrict__ in, int* __restrict__ out, int n){
     int i = blockIdx.x * blockDim.x + threadIdx.x; int s = blockDim.x * gridDim.x;
     for (; i < n; i += s) out[i] = (int)in[i];
@@ -74,7 +77,7 @@ static inline void gemm_checked(
     const char* label)
 {
     nano2_gemm_f32(transA, transB, M, N, K, A, lda, B, ldb, C, ldc, alpha, beta);
-    //hard-sync and then print descriptive label
+    // Hard-sync so the *right* call gets blamed; then print a descriptive label.
     cudaError_t err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
         fprintf(stderr,
@@ -84,7 +87,7 @@ static inline void gemm_checked(
     CUDA_CHECK(label);
 }
 
-//GELU backward (tanh approx), in-place multiply on d
+//GELU backward (tanh approximation), in-place multiply on d
 //d <- d * GELU'(z) in-place
 static __global__ void gelu_bw_tanh_kernel(const float* __restrict__ z, // pre-activation
                                            float* __restrict__ d,       // upstream grad (dff1)
@@ -95,17 +98,15 @@ static __global__ void gelu_bw_tanh_kernel(const float* __restrict__ z, // pre-a
     const float k1 = 0.044715f;
     for (; i < n; i += s){
         float x = z[i];
-        float u = k0 * (x+k1*x*x*x);
+        float u = k0 * (x + k1 * x * x * x);
         float t = tanhf(u);
-        float sech2 = 1.0f - t*t;
+        float sech2 = 1.0f - t * t;
         float dgelu = 0.5f * (1.0f + t) + 0.5f * x * sech2 * k0 * (1.0f + 3.0f * k1 * x * x);
         d[i] *= dgelu;
     }
 }
 
-//softmax
-//Xent loss
-//dlogits (mean)
+//softmax + Xent loss + dlogits (mean)
 __global__ void xent_grad_mean_kernel(const float* __restrict__ logits, // [rows, cols]
                                       const uint8_t* __restrict__ targets, // [rows]
                                       int rows, int cols,
@@ -278,7 +279,8 @@ extern "C" float nano2_train_step(struct Model* M,
 
     //LN1
     nano2_layernorm_forward(M->buf.x, M->buf.x_ln1, M->p.ln1_g, M->p.ln1_b, BT, D, 1e-5f);
-
+    CUDA_CHECK("ln1 forward");
+    
     //Attention (gemm-based, mirrors forward)
     nano2_gemm_f32(0,0, BT, D, D, M->buf.x_ln1, D, M->p.Wq, D, M->buf.q, D, 1.0f, 0.0f);
     CUDA_CHECK("gemm q = x_ln1 @ Wq");
