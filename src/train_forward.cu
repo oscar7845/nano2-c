@@ -108,7 +108,7 @@ extern "C" float nano2_forward_loss(struct Model* M,
   {
     dim3 block(256,1,1);
     dim3 grid(BT,1,1);
-    embed_add_pos_kernel<<<grid, block>>>(d_x, M->p.E, M->pos_sin, M->pos_cos, M->buf.x, B, T, D);
+    //embed_add_pos_kernel<<<grid, block>>>(d_x, M->p.E, M->pos_sin, M->pos_cos, M->buf.x, B, T, D);
     CUDA_CHECK("embed_add_pos");
   }
 
