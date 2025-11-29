@@ -125,6 +125,7 @@ static void fetch_last_logits_row(struct Model* M,int row,float* host_logits_out
     cudaMemcpy(host_logits_out,M->buf.logits+off,(size_t)M->V*sizeof(float),cudaMemcpyDeviceToHost);
 }
 
+//repl
 int run_chat(const char* ckpt_file,
              const char* ckpt_dir,
              int use_best,
@@ -141,10 +142,10 @@ int run_chat(const char* ckpt_file,
     model_init(&M, &cfg);
 
     int loaded=-1;
-    if (ckpt_file && ckpt_file[0]) {
+    if(ckpt_file && ckpt_file[0]){
         loaded=load_params_into_model(ckpt_file, &M);
-    } else if (ckpt_dir && ckpt_dir[0]) {
-        if (use_best) {
+    } else if(ckpt_dir && ckpt_dir[0]){
+        if(use_best){
             char p[1024];
             snprintf(p, sizeof(p), "%s/best.params.bin", ckpt_dir);
             loaded=load_params_into_model(p, &M);
@@ -152,39 +153,34 @@ int run_chat(const char* ckpt_file,
             int step=0;
             float loss=0.f;
             loaded=load_checkpoint_latest(ckpt_dir, &M, &cfg, &step, &loss);
-            if (loaded==0)
-                printf("[ckpt] loaded latest (step=%d, val_loss=%.6f)\n", step, loss);
         }
     }
 
-    if (loaded!=0) {
-        fprintf(stderr, "[chat] failed to load weights\n");
+    if(loaded!=0){
+        fprintf(stderr, "[chat] load failed\n");
         model_free(&M);
         return 1;
     }
 
-    uint8_t *conv=NULL;
+    uint8_t* conv=NULL;
     size_t clen=0, ccap=0;
-
     append_cstr(&conv, &clen, &ccap,
-        "You are Assistant.\n"
-        "Conversation format:\n"
-        "User: ...\nAssistant: ...\n\n");
+        "You are Assistant.\nUser: ...\nAssistant: ...\n\n");
 
-    printf("== nano2 chat ==\n");
+    fprintf(stdout, "== nano2 chat ==\n");
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    char line[8192];
+    char line[4096];
     unsigned int rng=seed ? seed : (unsigned int)time(NULL);
 
     const int T=M.T, V=M.V;
-    uint8_t *x=malloc(T), *y = malloc(T);
-    float *last_logits=malloc(V * sizeof(float));
+    uint8_t *x=malloc(T), *y=malloc(T);
+    float *logits=malloc(V*sizeof(float));
 
-    while (1) {
-        printf("you> ");
-        if (!fgets(line, sizeof(line), stdin)) break;
-        if (!strcmp(line, "/exit\n")) break;
+    while(1){
+        fprintf(stdout, "you> ");
+        if(!fgets(line, sizeof(line), stdin)) break;
+        if(strcmp(line, "/exit\n")==0) break;
 
         size_t L=strcspn(line, "\r\n");
         line[L]=0;
@@ -193,8 +189,43 @@ int run_chat(const char* ckpt_file,
         append_cstr(&conv, &clen, &ccap, line);
         append_cstr(&conv, &clen, &ccap, "\nAssistant: ");
 
-        printf("bot> ");
+        fprintf(stdout, "bot> ");
 
-        int produced=0, stop=0;
+        int produced=0;
+        while(produced<max_new_tokens){
+            size_t ctx_len=clen;
+            int take=(ctx_len<(size_t)T)?ctx_len:T;
+
+            memcpy(x, conv+(ctx_len-take), take);
+            memset(x+take, 0, T-take);
+
+            for(int i=0; i<T-1; i++) y[i]=x[i+1];
+            y[T-1]=0;
+
+            nano2_forward_loss(&M, x, y);
+            fetch_last_logits_row(&M, take-1, logits);
+
+            int tok=sample_topk(logits, V, top_k, temperature, &rng);
+            uint8_t b=(uint8_t)tok;
+
+            fputc(readable_ascii(b)?b:' ', stdout);
+
+            append_bytes(&conv, &clen, &ccap, &b, 1);
+            produced++;
+
+            if(b=='\n') break;
+        }
+
+        fprintf(stdout, "\n");
+        append_cstr(&conv, &clen, &ccap, "\n");
     }
+
+    free(x);
+    free(y);
+    free(logits);
+    free(conv);
+    model_free(&M);
+
+    return 0;
 }
+
