@@ -35,6 +35,26 @@ add_executable(nano2
   src/chat.c
 )
 
+add_executable(nano2_fw
+    src/config.c
+    test-fw/main.c
+    src/data.c
+    src/model.c
+    src/tensor.c
+    src/train_forward.cu
+    src/cuda/attention.cu
+    src/cuda/embed.cu
+    src/cuda/layernorm.cu
+    src/cuda/softmax.cu
+    src/cuda/gemm.cu
+    src/cuda/gelu.cu
+    src/cuda/loss.cu
+)
+
+target_include_directories(nano2_fw PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
+target_link_libraries(nano2_fw PRIVATE MPI::MPI_C CUDA::cudart)
+
 target_link_libraries(nano2 PRIVATE
   MPI::MPI_C
   CUDA::cudart

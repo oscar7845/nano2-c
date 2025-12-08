@@ -1,7 +1,5 @@
 # Build / tooling
 /build/
-/CMakeFiles/
-/CMakeCache.txt
 /cmake-install.cmake
 /compile_commands.json
 /*.cmake
@@ -10,9 +8,6 @@
 /.idea/
 
 # Runtime artifacts
-/logs/
-/checkpoints/
-/data/cache/
 /data/
 
 # OS cruft

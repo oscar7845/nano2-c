@@ -1,7 +1,7 @@
 # Simple wrapper Makefile so you can just run `make` in the project root.
 # It configures CMake to use the nvcc wrapper script, same as scripts/build.sh.
 
-CUDA_ARCH ?= 86
+CUDA_ARCH ?= 50
 BUILD_DIR ?= build
 CMAKE     ?= cmake
 
