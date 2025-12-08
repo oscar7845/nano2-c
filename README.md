@@ -12,19 +12,6 @@ Decoder
 
 ## Helpful commands 
 
-```bash
-# config + build (release)
-./scripts/build.sh
-
-# run single box
-./scripts/run_local.sh
-
-# run cluster of boxes
-NP=2 ./scripts/run_mpi.sh
-
-# multi node example (edit hostnames first)
-./scripts/run_mpi.sh -H node1,node2 -N 2
-```
 ## Forward single box gpu:
 ```bash
 mpirun -np 1 ./build/nano2_fw --config ./configs/nano2.json --fw-iters=1
