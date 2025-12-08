@@ -1,0 +1,33 @@
+nano2: world=1 local_rank=0/1 device=0
+config: ./configs/nano2.json
+train_path: data/tinystories-train.bin
+val_path: data/tinystories-val.bin
+seq_len: 256
+batch_size: 16
+vocab_size: 256
+d_model: 512
+ffn_mult: 4
+lr: 0.00030000
+weight_decay: 0.01000000
+clip_grad_norm: 1.00000000
+seed: 42
+top_k: 50
+[data] train: data/tinystories-train.bin | tokens=1924281556 | cursor=0
+[data] val: data/tinystories-val.bin | tokens=19447282 | cursor=0
+model summary:
+  dims: B=16 T=256 D=512 V=256 F=2048
+  parameters: 3281408 (12.52 MiB as fp32)
+  tensors:
+    E           : [256, 512]
+    ln1_g/ln1_b : [512] / [512]
+    Wq/Wk/Wv/Wo : 4 x [512, 512]
+    ln2_g/ln2_b : [512] / [512]
+    W1/b1       : [512, 2048] / [2048]
+    W2/b2       : [2048, 512] / [512]
+  pos tables    : sin/cos [256, 256]
+[host] B=16 T=256 BT=4096
+batch preview x[0,0:16): 79 110 101 32 100 97 121 44 32 97 32 108 105 116 116 108 
+batch preview y[0,0:16): 110 101 32 100 97 121 44 32 97 32 108 105 116 116 108 101 
+[gpu] memory used: 270.56 MiB / 3770.50 MiB
+forward mean loss: 5.843337 (expect ~ ln(256)=5.545)
+step time: 145.231 ms | tokens/step: 4096 | tokens/sec: 28203
