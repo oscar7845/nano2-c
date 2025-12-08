@@ -76,6 +76,48 @@ add_executable(nano2_fwbw
   src/chat.c
 )
 
+# ---- CPU-only forward benchmark ----
+add_executable(nano2_cpu_fw
+  src/config.c
+  src/data.c
+  cpu-fw/main.c
+)
+
+target_include_directories(nano2_cpu_fw PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
+target_link_libraries(nano2_cpu_fw PRIVATE
+  MPI::MPI_C
+  m
+)
+
+set_target_properties(nano2_cpu_fw PROPERTIES
+  C_STANDARD 11
+  LINKER_LANGUAGE C
+)
+
+add_executable(nano2_cpu_fwandbw
+  src/config.c
+  src/data.c
+  cpu-fwandbw/main.c
+)
+
+target_include_directories(nano2_cpu_fwandbw PRIVATE
+  ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(nano2_cpu_fwandbw PRIVATE
+  MPI::MPI_C
+  m
+)
+
+set_target_properties(nano2_cpu_fwandbw PROPERTIES
+  C_STANDARD 11
+  LINKER_LANGUAGE C
+)
+
+
+
+
 # ---- Packer tool (no CUDA) ----
 add_executable(nano2_pack
   tools/tokenizer.c
