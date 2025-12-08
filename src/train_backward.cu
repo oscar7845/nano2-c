@@ -5,6 +5,7 @@
 //grad-norm clip, 
 //AdamW update
 //TODO: check decay prints
+#include "atomic_utils.cuh"
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include <math.h>

@@ -1,6 +1,7 @@
 //grad-norm clipping 
 //AdamW update 
 //(fp32, no bias-correction).
+#include "atomic_utils.cuh"
 #include <cuda_runtime_api.h>
 #include <stdint.h>
 #include <math.h>
