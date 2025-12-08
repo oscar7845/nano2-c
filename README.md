@@ -71,3 +71,15 @@ mpirun -np 1 ./build/nano2_cpu_fwandbw --config ./configs/nano2.json --fw-bw-ite
 mpirun -np 1 ./build/nano2_cpu_fwandbw --config ./configs/nano2.json --fw-bw-iters=3
 ```
 time/iter: 166000 ms
+
+## Inference (CLI)
+```bash
+./build/nano2 --config ./configs/nano2.json --infer --ckpt-dir ./ckpts --best --prompt='Once upon a time, there was a little girl named Lily. ' --max-new=400 --temperature=0.8 --top-k=40 --seed=123
+```
+
+## Inference (chat)
+```bash
+./build/nano2 --config ./configs/nano2.json --chat --ckpt-dir ./ckpts --best
+```
+
+
