@@ -18,7 +18,3 @@
 # OS cruft
 .DS_Store
 Thumbs.db
-
-/ckpts/*.bin
-/ckpts_mix/*.bin
-
