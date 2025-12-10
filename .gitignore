@@ -10,6 +10,7 @@
 # Runtime artifacts
 /data/
 
+/logs/*.html
 # OS cruft
 .DS_Store
 Thumbs.db

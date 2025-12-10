@@ -95,6 +95,22 @@ set_target_properties(nano2_cpu_fw PROPERTIES
   LINKER_LANGUAGE C
 )
 
+# ---- CPU-only forward (Serial version, no MPI) ----
+add_executable(nano2_cpu_fw_serial
+  src/config.c
+  src/data.c
+  cpu-fw/main_serial.c
+)
+
+target_include_directories(nano2_cpu_fw_serial PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
+target_link_libraries(nano2_cpu_fw_serial PRIVATE m)
+
+set_target_properties(nano2_cpu_fw_serial PROPERTIES
+  C_STANDARD 11
+  LINKER_LANGUAGE C
+)
+
 add_executable(nano2_cpu_fwandbw
   src/config.c
   src/data.c
@@ -115,6 +131,20 @@ set_target_properties(nano2_cpu_fwandbw PROPERTIES
   LINKER_LANGUAGE C
 )
 
+
+# New serial CPU fw+bw target (no MPI)
+add_executable(nano2_cpu_fwandbw_serial
+  src/config.c
+  src/data.c
+  cpu-fwandbw/main_serial.c
+)
+
+target_include_directories(nano2_cpu_fwandbw_serial PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(nano2_cpu_fwandbw_serial PRIVATE m)
+set_target_properties(nano2_cpu_fwandbw_serial PROPERTIES
+  C_STANDARD 11
+  LINKER_LANGUAGE C
+)
 
 
 
