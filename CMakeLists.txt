@@ -37,117 +37,6 @@ add_executable(nano2
   src/chat.c
 )
 
-# ---- Forward-only test binary ----
-add_executable(nano2_fw
-  src/config.c
-  test-fw/main.c
-  src/data.c
-  src/model.c
-  src/tensor.c
-  src/train_forward.cu
-  src/cuda/attention.cu
-  src/cuda/embed.cu
-  src/cuda/layernorm.cu
-  src/cuda/softmax.cu
-  src/cuda/gemm.cu
-  src/cuda/gelu.cu
-  src/cuda/loss.cu
-)
-
-# ---- Forward + backward test binary ----
-add_executable(nano2_fwbw
-  src/config.c
-  test-fwandbw/main.c
-  src/data.c
-  src/model.c
-  src/tensor.c
-  src/train_forward.cu
-  src/train_backward.cu
-  src/cuda/attention.cu
-  src/cuda/attention_backward.cu
-  src/cuda/embed.cu
-  src/cuda/layernorm.cu
-  src/cuda/softmax.cu
-  src/cuda/gemm.cu
-  src/cuda/gelu.cu
-  src/cuda/loss.cu
-  src/optim.cu
-  src/checkpoint.c
-  src/chat.c
-)
-
-# ---- CPU-only forward benchmark ----
-add_executable(nano2_cpu_fw
-  src/config.c
-  src/data.c
-  cpu-fw/main.c
-)
-
-target_include_directories(nano2_cpu_fw PRIVATE ${PROJECT_SOURCE_DIR}/src)
-
-target_link_libraries(nano2_cpu_fw PRIVATE
-  MPI::MPI_C
-  m
-)
-
-set_target_properties(nano2_cpu_fw PROPERTIES
-  C_STANDARD 11
-  LINKER_LANGUAGE C
-)
-
-# ---- CPU-only forward (Serial version, no MPI) ----
-add_executable(nano2_cpu_fw_serial
-  src/config.c
-  src/data.c
-  cpu-fw/main_serial.c
-)
-
-target_include_directories(nano2_cpu_fw_serial PRIVATE ${PROJECT_SOURCE_DIR}/src)
-
-target_link_libraries(nano2_cpu_fw_serial PRIVATE m)
-
-set_target_properties(nano2_cpu_fw_serial PROPERTIES
-  C_STANDARD 11
-  LINKER_LANGUAGE C
-)
-
-add_executable(nano2_cpu_fwandbw
-  src/config.c
-  src/data.c
-  cpu-fwandbw/main.c
-)
-
-target_include_directories(nano2_cpu_fwandbw PRIVATE
-  ${PROJECT_SOURCE_DIR}/src
-)
-
-target_link_libraries(nano2_cpu_fwandbw PRIVATE
-  MPI::MPI_C
-  m
-)
-
-set_target_properties(nano2_cpu_fwandbw PROPERTIES
-  C_STANDARD 11
-  LINKER_LANGUAGE C
-)
-
-
-# New serial CPU fw+bw target (no MPI)
-add_executable(nano2_cpu_fwandbw_serial
-  src/config.c
-  src/data.c
-  cpu-fwandbw/main_serial.c
-)
-
-target_include_directories(nano2_cpu_fwandbw_serial PRIVATE ${PROJECT_SOURCE_DIR}/src)
-target_link_libraries(nano2_cpu_fwandbw_serial PRIVATE m)
-set_target_properties(nano2_cpu_fwandbw_serial PROPERTIES
-  C_STANDARD 11
-  LINKER_LANGUAGE C
-)
-
-
-
 # ---- Packer tool (no CUDA) ----
 add_executable(nano2_pack
   tools/tokenizer.c
@@ -157,8 +46,6 @@ set_target_properties(nano2_pack PROPERTIES C_STANDARD 11)
 # ---- Common settings for CUDA executables ----
 set(NANO2_CUDA_TARGETS
   nano2
-  nano2_fw
-  nano2_fwbw
 )
 
 foreach(tgt IN LISTS NANO2_CUDA_TARGETS)
